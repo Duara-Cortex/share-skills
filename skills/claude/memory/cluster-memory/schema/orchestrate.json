@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "cluster-memory/orchestrate.json",
+  "title": "Closed-Loop Cognitive Cycle Contract",
+  "description": "Request and response payload contracts for `sekha-cluster-tool orchestrate`, which coordinates all four stages in a single closed-loop turn and collects per-stage telemetry. The response object is emitted verbatim to stdout by the CLI. Stage sub-objects reuse the contracts in filter.json, recall.json, deliberate.json, and consolidate.json. Property names mirror the compiled tool's JSON tags exactly and must never be anglicised.",
+  "type": "object",
+  "definitions": {
+    "StageTelemetry": {
+      "type": "object",
+      "description": "Execution duration and status for one stage of the cognitive loop.",
+      "properties": {
+        "stage_name": { "type": "string", "description": "Stage label (e.g. sensory, recall, deliberation, consolidation)." },
+        "node": { "type": "string", "description": "Cognitive layer that served the stage." },
+        "endpoint": { "type": "string", "description": "Resolved endpoint the stage was dispatched to." },
+        "duration_ms": { "type": "number", "description": "Stage duration in milliseconds; compare against the documented sub-second hop budget." },
+        "status": { "type": "string", "description": "Stage status (e.g. ok, degraded, error, skipped)." },
+        "error": { "type": "string", "description": "Error detail when the stage failed or degraded." }
+      },
+      "required": ["stage_name", "node", "endpoint", "duration_ms", "status"]
+    }
+  },
+  "properties": {
+    "request": {
+      "type": "object",
+      "description": "Configuration for a full cognitive turn. Populated from the CLI flags --input, --directive, --trace-id, and --sync.",
+      "properties": {
+        "raw_input": { "type": "string", "description": "The raw sensory stream to process (CLI flag --input)." },
+        "task_directive": { "type": "string", "description": "Attention and reasoning directive for the turn (CLI flag --directive)." },
+        "filter_threshold": { "type": "number", "description": "Salience cut-off for Stage 1." },
+        "recall_top_k": { "type": "integer", "description": "Top-k bound for Stage 2 recall." },
+        "max_tokens": { "type": "integer", "description": "Generation budget for Stage 3 deliberation." },
+        "session_id": { "type": "string", "description": "Session identifier threaded through the turn." },
+        "synchronous_consolidate": { "type": "boolean", "description": "When true (CLI flag --sync), block on Stage 4 consolidation statistics." }
+      },
+      "required": ["raw_input"]
+    },
+    "response": {
+      "type": "object",
+      "description": "End-to-end outcome of the four-stage cognitive cycle with nested stage payloads and telemetry.",
+      "properties": {
+        "trace_id": { "type": "string", "description": "Distributed trace identifier for the whole turn." },
+        "session_id": { "type": "string" },
+        "status": { "type": "string", "description": "Overall turn status (e.g. ok, degraded, error)." },
+        "final_thought": { "type": "string", "description": "The scratchpad's concluding thought." },
+        "proposed_action": { "type": "string", "description": "The action proposed at the end of the turn." },
+        "is_complete": { "type": "boolean", "description": "True when the loop reached a terminal conclusion." },
+        "sensory": { "$ref": "filter.json#/properties/response", "description": "Full Stage 1 filter response." },
+        "recall": { "$ref": "recall.json#/properties/response", "description": "Full Stage 2 recall response." },
+        "deliberation": { "$ref": "deliberate.json#/properties/response", "description": "Full Stage 3 deliberate response." },
+        "consolidation": { "$ref": "consolidate.json#/properties/response", "description": "Full Stage 4 consolidate response." },
+        "stages": { "type": "array", "items": { "$ref": "#/definitions/StageTelemetry" }, "description": "Ordered per-stage telemetry for latency and status inspection." },
+        "total_duration_ms": { "type": "number", "description": "End-to-end turn duration in milliseconds." }
+      },
+      "required": ["trace_id", "session_id", "status", "is_complete", "sensory", "recall", "deliberation", "consolidation", "stages", "total_duration_ms"]
+    }
+  }
+}

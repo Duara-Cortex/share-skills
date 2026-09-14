@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "cluster-memory/deliberate.json",
+  "title": "Working Deliberation Contract (Stage 3)",
+  "description": "Request and response payload contracts for `sekha-cluster-tool deliberate`, dispatched to the Node 2 Working Memory Scratchpad (POST /api/v1/working/deliberate, :8083). The response object is emitted verbatim to stdout by the CLI. Property names mirror the compiled tool's JSON tags exactly and must never be anglicised.",
+  "type": "object",
+  "definitions": {
+    "SensoryChunk": {
+      "type": "object",
+      "description": "A salient chunk forwarded from Stage 1 as grounding context.",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "salience": { "type": "number" },
+        "source": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "text", "salience", "timestamp"]
+    },
+    "CandidateAction": {
+      "type": "object",
+      "description": "An uncommitted proposed action or tool invocation.",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "description": "Action class (e.g. tool_call, response, escalation)." },
+        "payload": { "type": "object", "description": "Free-form action arguments.", "additionalProperties": true },
+        "committed": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "type", "committed", "created_at"]
+    }
+  },
+  "properties": {
+    "request": {
+      "type": "object",
+      "description": "Payload dispatched to Node 2. Populated from the CLI flags --task (objective), --input (observation), and --context (long-term grounding).",
+      "properties": {
+        "objective": { "type": "string", "description": "The reasoning goal for this step (CLI flag --task)." },
+        "sensory_chunks": { "type": "array", "items": { "$ref": "#/definitions/SensoryChunk" }, "description": "Salient chunks carried forward from Stage 1." },
+        "long_term_context": { "type": "array", "items": { "type": "string" }, "description": "Grounding facts distilled from Stage 2 recall (CLI flag --context)." },
+        "observation": { "type": "string", "description": "New observation for this step (CLI flag --input)." },
+        "max_tokens": { "type": "integer", "description": "Generation budget for the local SLM." },
+        "temperature": { "type": "number", "description": "Sampling temperature for the local SLM." }
+      },
+      "required": ["objective"]
+    },
+    "response": {
+      "type": "object",
+      "description": "The completed reasoning step returned by Node 2.",
+      "properties": {
+        "status": { "type": "string", "description": "Step status (e.g. ok, in_progress, error)." },
+        "step_index": { "type": "integer", "description": "Zero-based position of this step in the trajectory." },
+        "thought": { "type": "string", "description": "The deliberated reasoning for this step." },
+        "proposed_action": { "type": "string", "description": "The action the scratchpad proposes next." },
+        "is_complete": { "type": "boolean", "description": "True when the trajectory has reached a terminal conclusion." },
+        "candidate_actions": { "type": "array", "items": { "$ref": "#/definitions/CandidateAction" }, "description": "Uncommitted candidate actions produced this step." },
+        "prompt_tokens": { "type": "integer" },
+        "completion_tokens": { "type": "integer" },
+        "total_tokens": { "type": "integer" },
+        "prompt_eval_rate_tps": { "type": "number", "description": "Prompt evaluation throughput in tokens per second." },
+        "generation_rate_tps": { "type": "number", "description": "Generation throughput in tokens per second." },
+        "active_goal": { "type": "string", "description": "The goal currently held in working memory." },
+        "trajectory_length": { "type": "integer", "description": "Number of steps accumulated in the trajectory." },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["status", "step_index", "thought", "is_complete", "prompt_tokens", "completion_tokens", "total_tokens", "active_goal", "trajectory_length", "timestamp"]
+    }
+  }
+}

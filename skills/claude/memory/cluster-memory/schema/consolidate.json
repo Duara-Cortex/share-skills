@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "cluster-memory/consolidate.json",
+  "title": "Episodic Consolidation Contract (Stage 4)",
+  "description": "Request and response payload contracts for `sekha-cluster-tool consolidate`, dispatched to the Node 1 Long-Term Knowledge Graph Store (POST /api/v1/memory/consolidate, :8084). The response object is emitted verbatim to stdout by the CLI. Property names mirror the compiled tool's JSON tags exactly and must never be anglicised.",
+  "type": "object",
+  "definitions": {
+    "SensoryItem": {
+      "type": "object",
+      "description": "A salient sensory chunk preserved in the episodic trace.",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "salience": { "type": "number" },
+        "source": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["text", "salience", "timestamp"]
+    },
+    "TrajectoryStep": {
+      "type": "object",
+      "description": "A deliberate reasoning step recorded within the episodic trace.",
+      "properties": {
+        "step_index": { "type": "integer" },
+        "thought": { "type": "string" },
+        "action": { "type": "string" },
+        "observation": { "type": "string" },
+        "status": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["step_index", "thought", "status", "timestamp"]
+    },
+    "CandidateAction": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "payload": { "type": "object", "additionalProperties": true },
+        "committed": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "type", "committed", "created_at"]
+    }
+  },
+  "properties": {
+    "request": {
+      "type": "object",
+      "description": "Episodic trace committed to Node 1. Populated from the CLI flags --goal, --outcome, --session-id, and --sync.",
+      "properties": {
+        "trace_id": { "type": "string", "description": "Correlating distributed trace identifier; echoed from X-Trace-ID when omitted." },
+        "session_id": { "type": "string", "description": "Deliberation session identifier (CLI flag --session-id)." },
+        "task_goal": { "type": "string", "description": "The task the episode pursued (CLI flag --goal)." },
+        "active_goal": { "type": "string", "description": "The goal held in working memory at commit time." },
+        "outcome": { "type": "string", "description": "Episode result (CLI flag --outcome; e.g. success, failure, partial)." },
+        "status": { "type": "string", "description": "Terminal status of the trace." },
+        "sensory_context": { "type": "array", "items": { "$ref": "#/definitions/SensoryItem" }, "description": "Salient chunks preserved with the episode." },
+        "trajectory": { "type": "array", "items": { "$ref": "#/definitions/TrajectoryStep" }, "description": "Ordered reasoning steps of the episode." },
+        "candidate_actions": { "type": "array", "items": { "$ref": "#/definitions/CandidateAction" }, "description": "Actions considered during deliberation." },
+        "synchronous": { "type": "boolean", "description": "When true (CLI flag --sync), block until consolidation statistics are available; otherwise queue for background fusion and decay." }
+      },
+      "required": ["session_id"]
+    },
+    "response": {
+      "type": "object",
+      "description": "Ingestion receipt and consolidation statistics returned by Node 1.",
+      "properties": {
+        "status": { "type": "string", "description": "Ingestion status (e.g. queued, consolidated, error)." },
+        "trace_id": { "type": "string", "description": "Trace identifier for the committed episode." },
+        "message": { "type": "string", "description": "Human-readable receipt message." },
+        "synchronous": { "type": "boolean", "description": "Whether the commit ran synchronously." },
+        "entities_extracted": { "type": "integer", "description": "Entities extracted from the trace (synchronous commits only)." },
+        "nodes_fused": { "type": "integer", "description": "Existing graph nodes reinforced or merged (synchronous commits only)." },
+        "edges_reinforced": { "type": "integer", "description": "Relational edges reinforced by Hebbian update (synchronous commits only)." }
+      },
+      "required": ["status", "trace_id", "message", "synchronous"]
+    }
+  }
+}

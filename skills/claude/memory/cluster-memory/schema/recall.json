@@ -1,0 +1,83 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "cluster-memory/recall.json",
+  "title": "Associative Recall Contract (Stage 2)",
+  "description": "Request and response payload contracts for `sekha-cluster-tool recall`, dispatched to the Node 1 Long-Term Knowledge Graph Store (POST /api/v1/memory/recall, :8084). The response object is emitted verbatim to stdout by the CLI. Property names mirror the compiled tool's JSON tags exactly and must never be anglicised.",
+  "type": "object",
+  "definitions": {
+    "Node": {
+      "type": "object",
+      "description": "A vertex in the relational knowledge graph.",
+      "properties": {
+        "id": { "type": "string" },
+        "entity_type": { "type": "string", "description": "Ontological class of the entity (e.g. policy, device, event)." },
+        "label": { "type": "string", "description": "Human-readable entity name." },
+        "summary": { "type": "string", "description": "Concise description of the entity." },
+        "embedding": { "type": "array", "items": { "type": "number" }, "description": "Optional dense vector; usually omitted from recall output." },
+        "created_at": { "type": "string", "format": "date-time" },
+        "last_accessed_at": { "type": "string", "format": "date-time" },
+        "last_reinforced_at": { "type": "string", "format": "date-time" },
+        "archived_at": { "type": ["string", "null"], "format": "date-time" },
+        "access_count": { "type": "integer", "description": "Number of times the node has been recalled; feeds the frequency score." },
+        "stability_score": { "type": "number", "description": "Hebbian stability; higher scores decay more slowly." },
+        "is_archived": { "type": "boolean" }
+      },
+      "required": ["id", "entity_type", "label", "summary", "created_at", "last_accessed_at", "access_count", "stability_score", "is_archived"]
+    },
+    "ScoredNode": {
+      "allOf": [
+        { "$ref": "#/definitions/Node" },
+        {
+          "type": "object",
+          "properties": {
+            "score": { "type": "number", "description": "Composite recall score = alpha*sim_score + beta*frequency_score + gamma*recency_score." },
+            "sim_score": { "type": "number", "description": "Semantic (vector) similarity component." },
+            "frequency_score": { "type": "number", "description": "Access-frequency component." },
+            "recency_score": { "type": "number", "description": "Recency-decay component." },
+            "hop_distance": { "type": "integer", "description": "Graph hops from the seed match (0 = direct hit, 1 = one-hop neighbour)." }
+          },
+          "required": ["score", "sim_score", "frequency_score", "recency_score", "hop_distance"]
+        }
+      ]
+    },
+    "Edge": {
+      "type": "object",
+      "description": "A directed, weighted relationship between two knowledge nodes.",
+      "properties": {
+        "source_id": { "type": "string" },
+        "target_id": { "type": "string" },
+        "relation_type": { "type": "string", "description": "Semantics of the relationship (e.g. mitigates, causes, governs)." },
+        "weight": { "type": "number", "description": "Association strength; reinforced by consolidation." },
+        "created_at": { "type": "string", "format": "date-time" },
+        "last_reinforced_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["source_id", "target_id", "relation_type", "weight", "created_at"]
+    }
+  },
+  "properties": {
+    "request": {
+      "type": "object",
+      "description": "Payload dispatched to Node 1. Populated from the CLI flags --query and --top-k.",
+      "properties": {
+        "query": { "type": "string", "description": "Natural-language concept to ground (CLI flag --query)." },
+        "embedding": { "type": "array", "items": { "type": "number" }, "description": "Optional precomputed query vector; supplied in place of --query." },
+        "entity_id": { "type": "string", "description": "Optional direct entity anchor for neighbourhood expansion." },
+        "top_k": { "type": "integer", "description": "Maximum ranked nodes to return (CLI flag --top-k; defaults to CLUSTER_RECALL_TOP_K)." },
+        "alpha": { "type": "number", "description": "Weight for semantic similarity (default 0.6)." },
+        "beta": { "type": "number", "description": "Weight for access-count frequency (default 0.2)." },
+        "gamma": { "type": "number", "description": "Weight for recency decay (default 0.2)." },
+        "expand_hops": { "type": "integer", "description": "Graph expansion depth: 0 or 1 (default 1)." }
+      }
+    },
+    "response": {
+      "type": "object",
+      "description": "Ranked contextual nodes and their relational subgraph.",
+      "properties": {
+        "nodes": { "type": "array", "items": { "$ref": "#/definitions/ScoredNode" }, "description": "Ranked associative entities, highest score first." },
+        "edges": { "type": "array", "items": { "$ref": "#/definitions/Edge" }, "description": "Relational edges connecting the returned nodes." },
+        "query_latency_ms": { "type": "number", "description": "Node 1 recall latency in milliseconds." }
+      },
+      "required": ["nodes", "edges", "query_latency_ms"]
+    }
+  }
+}
