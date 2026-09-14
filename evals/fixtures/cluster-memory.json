@@ -1,0 +1,380 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Central evaluation test fixtures for the Tri-Node Cluster Memory Skill across four cognitive stages.",
+  "fixtures": [
+    {
+      "id": "CM-01-SENSORY-GATING",
+      "title": "Sensory Noise Gating & Salience Thresholding",
+      "stage": 1,
+      "description": "Validates that high-volume noisy sensory streams are filtered via Node 3, discarding routine telemetry and retaining high-salience anomalous chunks.",
+      "input": {
+        "turns": [
+          {
+            "turn_index": 1,
+            "user": "Anomalous alerts are being received on the telemetry bus. Filter this raw telemetry stream using the cluster sensory gate: '[2026-09-14T20:10:01Z] node-1 heartbeat ok, mem=42% [2026-09-14T20:10:02Z] node-2 heartbeat ok, mem=55% [2026-09-14T20:10:03Z] node-3 heartbeat ok, mem=38% [2026-09-14T20:10:04Z] ALERT: pwr-rail-4 voltage dropped below 11.2V (nominal 12.0V), ripple=480mV [2026-09-14T20:10:05Z] ping latency 0.12ms [2026-09-14T20:10:06Z] routine fan check: rpm=2400'",
+            "tool_output": {
+              "chunks": [
+                {
+                  "id": "chnk-001",
+                  "text": "ALERT: pwr-rail-4 voltage dropped below 11.2V (nominal 12.0V), ripple=480mV",
+                  "salience": 0.94,
+                  "source": "telemetry-bus",
+                  "timestamp": "2026-09-14T20:10:04Z"
+                }
+              ],
+              "total_chunks": 6,
+              "salient_chunks": 1,
+              "noise_discarded": 5,
+              "reduction_rate": 0.833,
+              "latency_ms": 0.82
+            }
+          },
+          {
+            "turn_index": 2,
+            "user": "Summarise the gating results: state the noise reduction rate, latency, and the retained salient signal.",
+            "tool_output": null
+          }
+        ]
+      },
+      "expected_behaviour": {
+        "turn_1": {
+          "command": "sekha-cluster-tool filter",
+          "arguments": {
+            "--text": "[2026-09-14T20:10:01Z] node-1 heartbeat ok... [2026-09-14T20:10:04Z] ALERT: pwr-rail-4 voltage dropped below 11.2V...",
+            "--threshold": 0.45
+          },
+          "target_endpoint": "Node 3 (:8081)"
+        },
+        "turn_2": {
+          "salient_signals": ["pwr-rail-4 voltage dropped below 11.2V"],
+          "reduction_rate_reported": "83.3%",
+          "latency_reported": "0.82ms",
+          "noise_handled": "5 of 6 chunks discarded as routine keepalives"
+        }
+      }
+    },
+    {
+      "id": "CM-02-ASSOCIATIVE-RECALL",
+      "title": "Associative Recall Grounding & Graph Neighbourhood",
+      "stage": 2,
+      "description": "Tests retrieval of contextual entities and relational edges from the Node 1 Knowledge Graph Store using hybrid vector similarity and recency scoring.",
+      "input": {
+        "turns": [
+          {
+            "turn_index": 1,
+            "user": "Ground the following salient issue in cluster long-term memory: 'pwr-rail-4 undervoltage failure'. Recall top 2 related policies or entities.",
+            "tool_output": {
+              "nodes": [
+                {
+                  "id": "ent-pwr-policy-04",
+                  "entity_type": "policy",
+                  "label": "Power Rail Redundancy Policy",
+                  "summary": "Mandates immediate auxiliary bus transfer if rail drops below 11.4V for more than 500ms.",
+                  "created_at": "2026-01-15T08:00:00Z",
+                  "last_accessed_at": "2026-09-12T14:22:10Z",
+                  "access_count": 42,
+                  "stability_score": 0.88,
+                  "is_archived": false,
+                  "score": 0.912,
+                  "sim_score": 0.89,
+                  "frequency_score": 0.95,
+                  "recency_score": 0.92,
+                  "hop_distance": 0
+                },
+                {
+                  "id": "ent-hw-aux-bus",
+                  "entity_type": "device",
+                  "label": "Auxiliary Power Bus B",
+                  "summary": "Secondary standby DC supply for edge compute nodes.",
+                  "created_at": "2026-01-15T08:00:00Z",
+                  "last_accessed_at": "2026-09-10T11:05:00Z",
+                  "access_count": 18,
+                  "stability_score": 0.76,
+                  "is_archived": false,
+                  "score": 0.785,
+                  "sim_score": 0.74,
+                  "frequency_score": 0.82,
+                  "recency_score": 0.85,
+                  "hop_distance": 1
+                }
+              ],
+              "edges": [
+                {
+                  "source_id": "ent-pwr-policy-04",
+                  "target_id": "ent-hw-aux-bus",
+                  "relation_type": "activates",
+                  "weight": 0.95,
+                  "created_at": "2026-01-15T08:00:00Z",
+                  "last_reinforced_at": "2026-09-12T14:22:10Z"
+                }
+              ],
+              "query_latency_ms": 1.45
+            }
+          },
+          {
+            "turn_index": 2,
+            "user": "Extract the operational mandate and the specific target hardware device identified from long-term memory.",
+            "tool_output": null
+          }
+        ]
+      },
+      "expected_behaviour": {
+        "turn_1": {
+          "command": "sekha-cluster-tool recall",
+          "arguments": {
+            "--query": "pwr-rail-4 undervoltage failure",
+            "--top-k": 2
+          },
+          "target_endpoint": "Node 1 (:8084)"
+        },
+        "turn_2": {
+          "mandate": "Immediate auxiliary bus transfer if rail drops below 11.4V for more than 500ms",
+          "target_device": "Auxiliary Power Bus B (ent-hw-aux-bus)",
+          "graph_relationship": "activates (weight 0.95)"
+        }
+      }
+    },
+    {
+      "id": "CM-03-SCRATCHPAD-DELIBERATION",
+      "title": "Working Memory Deliberation on Node 2",
+      "stage": 3,
+      "description": "Tests multi-step deliberation on the Node 2 Working Memory Scratchpad, synthesising sensory observations and long-term grounding context.",
+      "input": {
+        "turns": [
+          {
+            "turn_index": 1,
+            "user": "Execute scratchpad deliberation for the task 'Engage auxiliary power bus' given the observation 'pwr-rail-4 at 11.18V for 750ms' and context '[policy: Power Rail Redundancy Policy] Transfer to Auxiliary Power Bus B'.",
+            "tool_output": {
+              "status": "ok",
+              "step_index": 0,
+              "thought": "Voltage on pwr-rail-4 has breached the 11.4V threshold for >500ms (measured 11.18V for 750ms). In accordance with the Power Rail Redundancy Policy, the primary supply is unstable. Action required: command transfer switch to Auxiliary Power Bus B immediately.",
+              "proposed_action": "switch_auxiliary_bus(target='Auxiliary Power Bus B', isolate_primary='pwr-rail-4')",
+              "is_complete": true,
+              "candidate_actions": [
+                {
+                  "id": "act-01",
+                  "type": "hardware_command",
+                  "payload": {
+                    "action": "transfer_power",
+                    "target": "auxiliary_bus_b"
+                  },
+                  "committed": false,
+                  "created_at": "2026-09-14T20:12:00Z"
+                }
+              ],
+              "prompt_tokens": 148,
+              "completion_tokens": 62,
+              "total_tokens": 210,
+              "prompt_eval_rate_tps": 420.5,
+              "generation_rate_tps": 48.2,
+              "active_goal": "Engage auxiliary power bus",
+              "trajectory_length": 1,
+              "timestamp": "2026-09-14T20:12:00Z"
+            }
+          },
+          {
+            "turn_index": 2,
+            "user": "What is the scratchpad's proposed action, and has the deliberation reached terminal completion?",
+            "tool_output": null
+          }
+        ]
+      },
+      "expected_behaviour": {
+        "turn_1": {
+          "command": "sekha-cluster-tool deliberate",
+          "arguments": {
+            "--task": "Engage auxiliary power bus",
+            "--input": "pwr-rail-4 at 11.18V for 750ms",
+            "--context": "[policy: Power Rail Redundancy Policy] Transfer to Auxiliary Power Bus B"
+          },
+          "target_endpoint": "Node 2 (:8083)"
+        },
+        "turn_2": {
+          "proposed_action": "switch_auxiliary_bus(target='Auxiliary Power Bus B', isolate_primary='pwr-rail-4')",
+          "is_complete": true,
+          "thought_summary": "Identified sustained voltage breach and selected auxiliary bus transfer"
+        }
+      }
+    },
+    {
+      "id": "CM-04-EPISODIC-CONSOLIDATION",
+      "title": "Episodic Consolidation & Graph Reinforcement",
+      "stage": 4,
+      "description": "Tests commitment of completed cognitive trajectories to Node 1 for episodic trace formation, Hebbian edge reinforcement, and decay queueing.",
+      "input": {
+        "turns": [
+          {
+            "turn_index": 1,
+            "user": "Commit the completed incident resolution to long-term memory. Goal: 'Engage auxiliary power bus', Outcome: 'success', Session: 'sess-pwr-20260914'. Ensure synchronous execution.",
+            "tool_output": {
+              "status": "consolidated",
+              "episode_id": "ep-20260914-8831",
+              "nodes_updated": 2,
+              "edges_reinforced": 1,
+              "decay_applied": true,
+              "latency_ms": 3.12
+            }
+          },
+          {
+            "turn_index": 2,
+            "user": "Confirm the consolidation status and state how many nodes and edges were updated in the knowledge graph.",
+            "tool_output": null
+          }
+        ]
+      },
+      "expected_behaviour": {
+        "turn_1": {
+          "command": "sekha-cluster-tool consolidate",
+          "arguments": {
+            "--goal": "Engage auxiliary power bus",
+            "--outcome": "success",
+            "--session-id": "sess-pwr-20260914",
+            "--sync": true
+          },
+          "target_endpoint": "Node 1 (:8084)"
+        },
+        "turn_2": {
+          "status": "consolidated",
+          "episode_id": "ep-20260914-8831",
+          "nodes_updated": 2,
+          "edges_reinforced": 1,
+          "decay_applied": true
+        }
+      }
+    },
+    {
+      "id": "CM-05-CLOSED-LOOP-CYCLE",
+      "title": "Full 4-Stage Closed-Loop Cognitive Orchestration",
+      "stage": 0,
+      "description": "Validates unified end-to-end cognitive cycle execution with distributed tracing, latency budgets, and sequential stage verification.",
+      "input": {
+        "turns": [
+          {
+            "turn_index": 1,
+            "user": "Orchestrate an end-to-end cognitive response for raw ingress stream: 'CRITICAL kernel panic risk: nvme0n1 write latency spiked to 4200ms, queue depth 64'. Use directive 'Resolve storage latency crisis' with trace ID 'trc-stor-0099'.",
+            "tool_output": {
+              "trace_id": "trc-stor-0099",
+              "status": "success",
+              "filter": {
+                "chunks": [
+                  {
+                    "id": "chnk-stor-01",
+                    "text": "CRITICAL kernel panic risk: nvme0n1 write latency spiked to 4200ms, queue depth 64",
+                    "salience": 0.98,
+                    "timestamp": "2026-09-14T20:15:00Z"
+                  }
+                ],
+                "total_chunks": 1,
+                "salient_chunks": 1,
+                "noise_discarded": 0,
+                "reduction_rate": 0.0,
+                "latency_ms": 0.95
+              },
+              "recall": {
+                "nodes": [
+                  {
+                    "id": "ent-nvme-flush",
+                    "entity_type": "runbook",
+                    "label": "NVMe Controller Reset & Throttle Policy",
+                    "summary": "Execute sync flush and rate-limit queue depth to 16 if latency exceeds 2000ms.",
+                    "score": 0.942,
+                    "sim_score": 0.95,
+                    "frequency_score": 0.90,
+                    "recency_score": 0.98,
+                    "hop_distance": 0
+                  }
+                ],
+                "edges": [],
+                "query_latency_ms": 1.62
+              },
+              "deliberate": {
+                "status": "ok",
+                "step_index": 0,
+                "thought": "Observed write latency of 4200ms far exceeds the 2000ms limit. Applying NVMe Controller Reset & Throttle Policy: trigger queue sync flush and cap queue depth at 16.",
+                "proposed_action": "throttle_queue_and_flush(dev='nvme0n1', max_depth=16)",
+                "is_complete": true,
+                "prompt_tokens": 162,
+                "completion_tokens": 44,
+                "total_tokens": 206,
+                "active_goal": "Resolve storage latency crisis",
+                "trajectory_length": 1,
+                "timestamp": "2026-09-14T20:15:01Z"
+              },
+              "consolidate": {
+                "status": "consolidated",
+                "episode_id": "ep-stor-0099",
+                "nodes_updated": 1,
+                "edges_reinforced": 1,
+                "decay_applied": true,
+                "latency_ms": 2.85
+              },
+              "total_latency_ms": 184.2
+            }
+          },
+          {
+            "turn_index": 2,
+            "user": "Verify that all 4 cognitive stages succeeded, confirm the trace ID, and state the total execution time.",
+            "tool_output": null
+          }
+        ]
+      },
+      "expected_behaviour": {
+        "turn_1": {
+          "command": "sekha-cluster-tool orchestrate",
+          "arguments": {
+            "--input": "CRITICAL kernel panic risk: nvme0n1 write latency spiked to 4200ms, queue depth 64",
+            "--directive": "Resolve storage latency crisis",
+            "--trace-id": "trc-stor-0099",
+            "--sync": true
+          }
+        },
+        "turn_2": {
+          "trace_id": "trc-stor-0099",
+          "stage_verification": "Stage 1 (Filter), Stage 2 (Recall), Stage 3 (Deliberate), and Stage 4 (Consolidate) all reported success",
+          "total_latency": "184.2ms (<200ms budget)",
+          "outcome_action": "throttle_queue_and_flush(dev='nvme0n1', max_depth=16)"
+        }
+      }
+    },
+    {
+      "id": "CM-06-DEGRADED-FALLBACK",
+      "title": "Graceful Fallback on Node Degradation",
+      "stage": 0,
+      "description": "Tests resilient agent behaviour when an upstream cluster node is unreachable or encounters an endpoint timeout.",
+      "input": {
+        "turns": [
+          {
+            "turn_index": 1,
+            "user": "Process incoming stream: 'Sensory probe alert: temperature exceeding 75C on Node 2'. Node 3 (:8081) is currently unreachable.",
+            "tool_output": {
+              "error": "dial tcp <sensory-node>:8081: connect: connection refused",
+              "fallback": "raw text preserved as unranked salient chunk",
+              "chunks": [
+                {
+                  "id": "fallback-chunk-01",
+                  "text": "Sensory probe alert: temperature exceeding 75C on Node 2",
+                  "salience": 1.0,
+                  "source": "fallback-heuristic",
+                  "timestamp": "2026-09-14T20:20:00Z"
+                }
+              ]
+            }
+          },
+          {
+            "turn_index": 2,
+            "user": "Explain how the cognitive harness reacted to the Node 3 outage without aborting the reasoning cycle.",
+            "tool_output": null
+          }
+        ]
+      },
+      "expected_behaviour": {
+        "turn_1": {
+          "behaviour": "Attempts filter or invokes fallback bypass heuristic upon detection of connection error"
+        },
+        "turn_2": {
+          "explanation": "Detected Node 3 connection refused; bypassed Stage 1 attention gate to preserve the raw sensory signal with default unit salience (1.0), proceeding to recall and deliberation without crashing"
+        }
+      }
+    }
+  ]
+}

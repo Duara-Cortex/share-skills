@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "cluster-memory/filter.json",
+  "title": "Sensory Filter Contract (Stage 1)",
+  "description": "Request and response payload contracts for `sekha-cluster-tool filter`, dispatched to the Node 3 Sensory Attention Gate (POST /api/v1/sensory/filter, :8081). The response object is emitted verbatim to stdout by the CLI. Property names mirror the compiled tool's JSON tags exactly and must never be anglicised.",
+  "type": "object",
+  "definitions": {
+    "SensoryChunk": {
+      "type": "object",
+      "description": "A discrete, scored text payload evaluated by the attention gate.",
+      "properties": {
+        "id": { "type": "string", "description": "Stable identifier for the chunk." },
+        "text": { "type": "string", "description": "The salient text retained after gating." },
+        "salience": { "type": "number", "description": "Normalised salience score in the range 0.0 to 1.0." },
+        "source": { "type": "string", "description": "Optional provenance label for the chunk." },
+        "timestamp": { "type": "string", "format": "date-time", "description": "RFC 3339 instant the chunk was scored." }
+      },
+      "required": ["id", "text", "salience", "timestamp"]
+    }
+  },
+  "properties": {
+    "request": {
+      "type": "object",
+      "description": "Payload dispatched to Node 3. Populated from the CLI flags --text, --directive, and --threshold.",
+      "properties": {
+        "text": { "type": "string", "description": "Raw text or stream line to gate (CLI flag --text)." },
+        "task_directive": { "type": "string", "description": "Optional attention directive biasing salience (CLI flag --directive)." },
+        "threshold": { "type": "number", "description": "Salience cut-off below which chunks are discarded as noise (CLI flag --threshold; defaults to CLUSTER_SALIENCE_THRESHOLD)." },
+        "from_buffer": { "type": "boolean", "description": "When true, gate the node's in-memory ring buffer instead of --text." }
+      }
+    },
+    "response": {
+      "type": "object",
+      "description": "Filtered salient chunks and stream-reduction metrics returned by Node 3.",
+      "properties": {
+        "chunks": { "type": "array", "items": { "$ref": "#/definitions/SensoryChunk" }, "description": "Salient chunks retained after gating." },
+        "total_chunks": { "type": "integer", "description": "Total chunks evaluated from the input stream." },
+        "salient_chunks": { "type": "integer", "description": "Count of chunks that met or exceeded the threshold." },
+        "noise_discarded": { "type": "integer", "description": "Count of chunks discarded as noise." },
+        "reduction_rate": { "type": "number", "description": "Fraction of the stream discarded as noise (0.0 to 1.0)." },
+        "latency_ms": { "type": "number", "description": "Node 3 gating latency in milliseconds." }
+      },
+      "required": ["chunks", "total_chunks", "salient_chunks", "noise_discarded", "reduction_rate", "latency_ms"]
+    }
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "cluster-memory/orchestrate.json",
+  "title": "Closed-Loop Orchestration Contract",
+  "description": "Request and response payload contracts for `sekha-cluster-tool orchestrate`, coordinating all 4 cognitive stages across the cluster in a single invocation. The response object is emitted verbatim to stdout by the CLI. Property names mirror the compiled tool's JSON tags exactly and must never be anglicised.",
+  "type": "object",
+  "definitions": {
+    "StageExecution": {
+      "type": "object",
+      "description": "Telemetry and execution status for an individual stage in the cognitive cycle.",
+      "properties": {
+        "stage_index": { "type": "integer", "description": "Index of the cognitive stage (1 = filter, 2 = recall, 3 = deliberate, 4 = consolidate)." },
+        "name": { "type": "string", "description": "Stage name identifier." },
+        "status": { "type": "string", "description": "Stage status (e.g. ok, skipped, degraded, error)." },
+        "node": { "type": "string", "description": "Cluster node servicing the stage." },
+        "duration_ms": { "type": "number", "description": "Hop execution duration in milliseconds." },
+        "error": { "type": "string", "description": "Error details if the stage degraded or failed." }
+      },
+      "required": ["stage_index", "name", "status", "duration_ms"]
+    }
+  },
+  "properties": {
+    "request": {
+      "type": "object",
+      "description": "Parameters for closed-loop orchestration populated via CLI flags.",
+      "properties": {
+        "input": { "type": "string", "description": "Raw incoming sensory string or stream line (CLI flag --input)." },
+        "directive": { "type": "string", "description": "Attention directive guiding filtering and deliberation (CLI flag --directive)." },
+        "trace_id": { "type": "string", "description": "Optional distributed trace ID for cross-node correlation (CLI flag --trace-id)." },
+        "sync": { "type": "boolean", "description": "When true, executes Stage 4 consolidation synchronously (CLI flag --sync)." }
+      },
+      "required": ["input"]
+    },
+    "response": {
+      "type": "object",
+      "description": "Consolidated response encapsulating telemetry and results across all 4 cognitive stages.",
+      "properties": {
+        "trace_id": { "type": "string", "description": "The distributed trace identifier correlated across all hops." },
+        "status": { "type": "string", "description": "Overall cognitive cycle outcome (e.g. success, partial_failure, error)." },
+        "stages": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/StageExecution" },
+          "description": "Ordered per-stage execution status and latency metrics."
+        },
+        "filter": {
+          "$ref": "filter.json#/properties/response",
+          "description": "Results from Stage 1 Sensory Filtering."
+        },
+        "recall": {
+          "$ref": "recall.json#/properties/response",
+          "description": "Results from Stage 2 Associative Recall."
+        },
+        "deliberate": {
+          "$ref": "deliberate.json#/properties/response",
+          "description": "Results from Stage 3 Working Memory Deliberation."
+        },
+        "consolidate": {
+          "$ref": "consolidate.json#/definitions/ConsolidationReceipt",
+          "description": "Results from Stage 4 Episodic Consolidation."
+        },
+        "total_latency_ms": { "type": "number", "description": "Total roundtrip latency of the 4-stage cognitive loop in milliseconds." },
+        "total_duration_ms": { "type": "number", "description": "Alternative key for total duration in milliseconds." }
+      },
+      "required": ["trace_id", "status", "stages"]
+    }
+  }
+}

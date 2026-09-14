@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "cluster-memory/consolidate.json",
+  "title": "Episodic Consolidation Contract (Stage 4)",
+  "description": "Request and response payload contracts for `sekha-cluster-tool consolidate`, dispatched to the Node 1 Episodic Memory Consolidation endpoint (POST /api/v1/memory/consolidate, :8084). The response object is emitted verbatim to stdout by the CLI. Property names mirror the compiled tool's JSON tags exactly and must never be anglicised.",
+  "type": "object",
+  "definitions": {
+    "ConsolidationReceipt": {
+      "type": "object",
+      "description": "Statistical summary of graph mutations committed during consolidation.",
+      "properties": {
+        "status": { "type": "string", "description": "Consolidation outcome (e.g. consolidated, queued, error)." },
+        "trace_id": { "type": "string", "description": "Correlation trace identifier for the episode." },
+        "episode_id": { "type": "string", "description": "Unique identifier assigned to the committed episode." },
+        "session_id": { "type": "string", "description": "The working memory session identifier." },
+        "nodes_updated": { "type": "integer", "description": "Count of knowledge graph nodes updated or reinforced." },
+        "edges_reinforced": { "type": "integer", "description": "Count of associative edges strengthened." },
+        "entities_extracted": { "type": "integer", "description": "Count of new entities extracted from the deliberation trace." },
+        "nodes_fused": { "type": "integer", "description": "Count of duplicate nodes fused via entity resolution." },
+        "decay_applied": { "type": "boolean", "description": "Whether Hebbian background decay was triggered." },
+        "latency_ms": { "type": "number", "description": "Node 1 consolidation execution latency in milliseconds." }
+      },
+      "required": ["status", "trace_id", "nodes_updated", "edges_reinforced", "decay_applied", "latency_ms"]
+    }
+  },
+  "properties": {
+    "request": {
+      "type": "object",
+      "description": "Payload dispatched to Node 1. Populated from CLI flags --goal, --outcome, --session-id, and --sync.",
+      "properties": {
+        "goal": { "type": "string", "description": "The objective or mission deliberated during the session (CLI flag --goal)." },
+        "outcome": { "type": "string", "enum": ["success", "failure", "in_progress"], "description": "The final outcome status of the deliberation trajectory (CLI flag --outcome)." },
+        "session_id": { "type": "string", "description": "Working memory session identifier (CLI flag --session-id)." },
+        "trace": { "type": "object", "description": "Optional full deliberation trajectory payload serialised as JSON (CLI flag --trace)." },
+        "sync": { "type": "boolean", "description": "When true, blocks until graph consolidation and decay complete synchronously (CLI flag --sync)." }
+      },
+      "required": ["goal", "outcome", "session_id"]
+    },
+    "response": {
+      "$ref": "#/definitions/ConsolidationReceipt"
+    }
+  }
+}
