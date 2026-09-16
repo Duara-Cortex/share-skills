@@ -1,6 +1,6 @@
 ---
 name: cluster-memory
-description: Route agent cognition through the tri-node Sekha edge cluster using the compiled sekha-cluster-tool CLI. Use this skill whenever a task involves gating a noisy sensory or telemetry stream, grounding a query against long-term associative memory, deliberating a multi-step action on the working scratchpad, or consolidating an episodic trace back into the knowledge graph. Keywords - cluster memory, sensory filter, salience gating, associative recall, knowledge graph, working scratchpad, deliberation, episodic consolidation, closed-loop cognition, orchestrate.
+description: Persistent cross-session memory and cognition on the tri-node edge cluster via the compiled sekha-cluster-tool CLI. Use this skill whenever the user asks you to memorise, remember, save or store information use for later, whenever the user refers back to something they told you earlier that is not in your context, or whenever a task involves sensory filtering, associative recall, scratchpad deliberation, or episodic consolidation. Keywords - memorise, remember, persistent memory, cluster memory, sensory filter, associative recall, knowledge graph, deliberation, consolidate, orchestrate.
 disable-model-invocation: false
 user-invocable: true
 ---
@@ -12,6 +12,8 @@ This skill teaches the agent to externalise memory and reasoning onto the **Sekh
 
 ## Purpose & Scope
 * **When to use:**
+  * The user asks you to memorise, remember, or store facts for later. Your context does not survive session boundaries; a conversational "confirmed" without a cluster write will cause complete amnesia in future sessions.
+  * The user refers to something they told you in an earlier session that is not in your context. Query the cluster before answering.
   * A raw, noisy, or high-volume stream (syslog, telemetry, sensor text) must be reduced to salient signal before reasoning.
   * A task needs grounding facts or related entities retrieved from long-term associative memory before acting.
   * A multi-step decision benefits from an explicit, inspectable reasoning trajectory on the working scratchpad.
@@ -49,6 +51,27 @@ Each stage maps to one subcommand, one node, and one payload contract. The respo
 * Need to see graceful degradation when a node is down? Read [`examples/fallback-degraded.md`](examples/fallback-degraded.md).
 * Running the self-scoring evaluation? See the co-located [`eval.md`](eval.md).
 
+## Storing & Recalling Facts Across Sessions
+
+### Storage Protocol
+* **Do NOT** merely confirm storage in text — without a cluster write, the fact is lost when the session ends.
+* **Do NOT** use `--goal` alone — it truncates the label to 40 characters and loses the parameters.
+* **Use** `consolidate --sync --trace '<json>'` with the JSON written inline inside single quotes. Avoid shell variables, heredocs, pipes, or files — they trigger permission prompts under `Bash(sekha-cluster-tool *)` allowlists.
+
+```bash
+sekha-cluster-tool consolidate --session-id "sess-memorise-<subject>" --goal "Store <Subject> configuration" --sync --trace '{"session_id":"sess-memorise-<subject>","task_goal":"Store <Subject> configuration","outcome":"success","status":"completed","sensory_context":[{"id":"fact-01","text":"<Subject> config: <PARAM_1>: <full text>; <PARAM_2>: <full text>; ...","salience":1.0,"source":"user","timestamp":"<now UTC>"}],"trajectory":[{"step_index":0,"thought":"Committed <Subject> configuration to long-term memory","status":"completed","timestamp":"<now UTC>"}]}'
+```
+
+* Only confirm storage to the user if the receipt shows `"status": "consolidated"` **and** `entities_extracted > 0`.
+* **Plaintext warning:** If storing credentials, tell the user they reside in plaintext in the Node 1 knowledge graph.
+
+### Recall Protocol
+1. Run `sekha-cluster-tool recall --query "<subject name>" --top-k 8`.
+2. Find the `sensory_fact` node matching the subject and extract values verbatim from `summary` (not `label`).
+3. If the fact is not in the top 8, retry once with the subject name plus parameter keywords (e.g. `"<Subject> config"`).
+4. Never use another subject's values (e.g. do not substitute Kestrel's values when asked about Gannetry). If the answer is ungrounded, decline honestly.
+5. Ignore the dense 64-D float `"embedding"` array — do not carry it into context.
+
 ## Step-by-Step Instructions
 
 <Sequence>
@@ -67,13 +90,14 @@ Each stage maps to one subcommand, one node, and one payload contract. The respo
   </Step>
   <Step title="Stage 3 — Deliberate" subtitle="deliberate">
     Formulate the reasoning step on the scratchpad:
-    `sekha-cluster-tool deliberate --task "<objective>" --input "<salient observation>" --context "<grounding fact>"`
+    `sekha-cluster-tool deliberate --task "<objective>" --input "<salient observation>" --context "<grounding fact>" --timeout 45s`
+    Edge SLM deliberation on Node 2 takes 25–35 s — always pass `--timeout 45s` to avoid premature deadline failures.
     Read `thought`, `proposed_action`, and `is_complete`. If `is_complete` is false, iterate: feed the prior `proposed_action` result back as the next `--input`.
   </Step>
   <Step title="Stage 4 — Consolidate" subtitle="consolidate">
     Commit the completed episode:
     `sekha-cluster-tool consolidate --goal "<objective>" --outcome "success|failure|partial" --session-id "<id>" --sync`
-    Confirm a `trace_id` and a terminal `status` are returned. Use `--sync` only when you need `entities_extracted`/`nodes_fused`/`edges_reinforced` immediately; otherwise allow background consolidation.
+    Confirm a `trace_id` and a terminal `status` are returned. Use `--sync` only when you need `entities_extracted`/`nodes_fused`/`edges_reinforced` immediately; otherwise allow background consolidation. To store key-value facts or configurations, use the `--trace` pattern in **Storing & Recalling Facts Across Sessions** instead of `--goal` alone.
   </Step>
   <Step title="Verify & Report" subtitle="Quality Assurance">
     Confirm each stage returned valid JSON and a plausible latency (`latency_ms`, `query_latency_ms`, `total_duration_ms`, or the per-stage `stages[]` telemetry). Surface the `trace_id` so the operator can correlate the turn across cluster logs.
