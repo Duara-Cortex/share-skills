@@ -1,7 +1,7 @@
 ---
 name: cluster-memory
 description: >-
-  Coordinates the Tri-Node Edge Cognitive Cluster across sensory attention gating (Node 3), associative knowledge recall (Node 1), working scratchpad deliberation (Node 2), and episodic memory consolidation (Node 1). Use when processing edge telemetry streams, retrieving grounded facts, executing deliberate multi-step reasoning, or persisting episodic memory traces via sekha-cluster-tool.
+  Coordinates the Tri-Node Edge Cognitive Cluster for persistent cross-session memory, sensory attention gating (Node 3), associative knowledge recall (Node 1), working scratchpad deliberation (Node 2), and episodic consolidation (Node 1). Use when asked to memorise, remember, save, or store any information for later use, when retrieving grounded facts across clean sessions, or when processing edge telemetry streams via sekha-cluster-tool.
 ---
 
 # Cluster Memory Skill
@@ -78,7 +78,7 @@ CLUSTER_KNOWLEDGE_URL=http://<knowledge-node>:8084
 
 # Timeout Budgets (milliseconds)
 CLUSTER_DEFAULT_TIMEOUT_MS=1500
-CLUSTER_DELIBERATE_TIMEOUT_MS=8000
+CLUSTER_DELIBERATE_TIMEOUT_MS=45000
 
 # Attention & Recall Hyperparameters
 CLUSTER_SALIENCE_THRESHOLD=0.45
@@ -91,6 +91,34 @@ Configuration resolution adheres strictly to 12-factor standard precedence:
 3. Local `.env` file (loaded from working directory, `--env-file`, or `~/.config/sekha-cluster-tool/.env`)
 4. Compile-time injected builder defaults
 5. Blank fallback (`""`)
+
+---
+
+## Storing & Recalling Configurations Across Sessions
+
+Passing `--goal` alone creates only a generic `task_goal` with a truncated 40-character label. To preserve parameters verbatim across sessions, facts MUST be supplied in an episodic trace JSON via `--trace` containing `sensory_context` and `trajectory`.
+
+### Exact Inline Consolidation Pattern
+Provide the exact inline command pattern (no heredocs, subshells, or temporary files):
+
+```bash
+sekha-cluster-tool consolidate \
+  --session-id "sess-memorise-<subject>" \
+  --goal "Store <Subject> configuration" \
+  --sync \
+  --trace '{"session_id":"sess-memorise-<subject>","task_goal":"Store <Subject> configuration","outcome":"success","status":"completed",
+"sensory_context":[{"id":"fact-01","text":"<Subject> config: <PARAM_1>: <val>; <PARAM_2>: <val>; ...","salience":1.0,"source":"user",
+"timestamp":"<now UTC>"}],"trajectory":[{"step_index":0,"thought":"Committed <Subject> configuration to long-term memory","status":"completed",
+"timestamp":"<now UTC>"}]}'
+```
+
+The agent must confirm `"status": "consolidated"` and `entities_extracted > 0`.
+
+### Cross-Session Recall Rules
+1. Search with `sekha-cluster-tool recall --query "<subject name>" --top-k 8`.
+2. Locate the `sensory_fact` node and extract parameters verbatim from `summary` (not `label`).
+3. If missing from the top hits, retry once by appending parameter keys: `"<Subject> config"`.
+4. **Dense vector note**: The 64-D float `"embedding"` array in recall output should be omitted when assembling working context to conserve prompt tokens.
 
 ---
 
@@ -129,7 +157,8 @@ Dispatch the task objective, salient sensory chunk, and distilled grounding fact
 sekha-cluster-tool deliberate \
   --task "<task objective>" \
   --input "<sensory observation>" \
-  --context "<retrieved facts and policy guidelines>"
+  --context "<retrieved facts and policy guidelines>" \
+  --timeout 45s
 ```
 *Schema details: [schema/deliberate.json](./schema/deliberate.json)*
 
@@ -143,6 +172,9 @@ sekha-cluster-tool consolidate \
   --sync
 ```
 *Schema details: [schema/consolidate.json](./schema/consolidate.json)*
+
+> [!NOTE]
+> For memorising key-value configurations, agents must use the trace pattern above rather than passing a simple text string to `--goal`.
 
 ### 6. Unified Closed-Loop Cycle (`orchestrate`)
 Execute the full 4-stage cognitive cycle in a single coordinated invocation:
