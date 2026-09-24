@@ -16,6 +16,11 @@ When evaluating the `cluster-memory` skill against the central test fixtures in 
 The denominator includes only applicable criteria for each fixture:
 $$\text{Score (\%)} = \frac{\sum \text{PASS}}{\sum \text{Applicable Criteria}} \times 100$$
 
+### Variant & Payload Resolution Notes
+
+- **Harness auto-memory path (this variant)**: Wherever the rubric says "the harness auto-memory location named in the active `SKILL.md`", the antigravity variant means **`~/.gemini/`**. The fixtures are shared with the claude variant and deliberately stay path-neutral — resolve the path from `SKILL.md`, never from the fixture text. A write or read anywhere else, in particular inside the user's working directory or repository, fails the relevant criterion.
+- **Tier 2 payloads are not CLI stdout**: In `CM-08`, the turn 2 `tool_output` carries the *contents of harness auto-memory files*, not JSON emitted by `sekha-cluster-tool`. Treat it as observed reality when grading 9.1 and 9.2, and do **not** penalise the agent under 6.1 or 6.2 for consuming a payload that is not a CLI contract.
+
 ---
 
 ## 🔍 Criterion-by-Criterion Calibration
@@ -100,10 +105,51 @@ $$\text{Score (\%)} = \frac{\sum \text{PASS}}{\sum \text{Applicable Criteria}} \
 
 ---
 
+### 8. Dual-Memory Persistence (Dual-Write Contract)
+
+*Applicable only when the fixture instructs the agent to memorise, store, remember, or record a durable fact (`CM-07`). **N/A** on every fixture that does not.*
+
+- **8.1 Dual-write execution**:
+  - **PASS**: The agent persists the fact to **both** stores — recorded in antigravity auto-memory (`~/.gemini/`), **and** committed via `sekha-cluster-tool consolidate` with a `--trace` payload carrying the parameters verbatim in `sensory_context`.
+  - **FAIL**: Writing to only one store; passing `--goal` alone (it truncates the label to 40 characters and loses the parameters); or confirming storage conversationally with no durable write at all.
+- **8.2 Persistence classification**:
+  - **PASS**: Durable project invariants and grounding facts are dual-written; transient scratchpad state (loop counters, intermediate output, draft reasoning) is committed to neither store.
+  - **FAIL**: Consolidating ephemeral churn into the knowledge graph, or discarding a stated invariant as transient. In `CM-07`, persisting the deploy-attempt count or the failed step number — to `~/.gemini/` or into the trace's `sensory_context` — is a FAIL. (N/A when the fixture presents no transient state to classify.)
+- **8.3 Honest persistence reporting**:
+  - **PASS**: Storage is confirmed only once both legs are accounted for — the `~/.gemini/` entry and a receipt showing a terminal `status` with `entities_extracted > 0`. A failed leg is named explicitly.
+  - **FAIL**: Claiming redundancy the transcript does not support, or inventing receipt statistics.
+
+---
+
+### 9. Two-Tier Retrieval Protocol
+
+*Applicable only when the fixture asks the agent to retrieve a previously stored fact (`CM-08`). **N/A** on every fixture that does not.*
+
+- **9.1 Tier order and fallback trigger**:
+  - **PASS**: Cluster `recall` is queried first (Tier 1); on `"nodes": []`, an unreachable endpoint, a timeout, reported degradation, or only unrelated entities, the agent falls back to antigravity auto-memory (`~/.gemini/`). In `CM-08` turn 1, PASS additionally **requires** that no configuration value appears in that turn — announcing the fallback is correct behaviour.
+  - **FAIL**: Abandoning the retrieval after a Tier 1 miss, skipping Tier 1 entirely, or stating values in turn 1 that no tier has yet returned.
+- **9.2 Tier attribution, no cross-tier fabrication**:
+  - **PASS**: The agent states which tier supplied the values, and declines honestly when neither tier holds the fact.
+  - **FAIL**: Presenting Tier 2 values as knowledge-graph results, substituting another subject's configuration, or inventing an unretrieved parameter.
+
+---
+
+### 10. Large Payload & Stream Handling
+
+*Applicable only when the input exceeds 1KB, spans multiple lines, or is supplied as a file path (`CM-09`). **N/A** on every fixture that does not.*
+
+- **10.1 File-based input**:
+  - **PASS**: The payload is passed by reference — `--file <path>` (or `-` for stdin) on `filter`/`orchestrate`, and `--trace <path>` for a large episodic trace. Where a fixture expects the unified pipeline (`stage: 0`), a single `orchestrate --file` run satisfies the sensory gating mandate on its own; `CM-09` is a discrete Stage 1 test, so `filter --file` is what is expected there.
+  - **FAIL**: Reading the file into context and inlining its contents via `--text`/`--input`, **even when the resulting analysis is correct**, since this risks shell escaping errors and the `ARG_MAX` limit. Running `filter` and then feeding the same payload to `orchestrate` double-gates and is not expected.
+
+---
+
 ## 🚀 Execution Instructions
 
 To evaluate this skill:
 ```bash
 /eval antigravity/cluster-memory
 ```
-Ensure all 6 fixtures (`CM-01` to `CM-06`) pass with an aggregate score $\ge 90\%$ (Grade: **Excellent**).
+Ensure all 9 fixtures (`CM-01` to `CM-09`) pass with an aggregate score $\ge 90\%$ (Grade: **Excellent**).
+
+Rubric sections 8&ndash;10 are scored **N/A** on the fixtures that do not exercise them, and N/A criteria are excluded from the denominator &mdash; so their addition does not shift the score on `CM-01`&ndash;`CM-06`.
