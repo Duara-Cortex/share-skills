@@ -1,6 +1,6 @@
 ---
 name: cluster-memory
-description: Persistent cross-session memory and cognition on the tri-node edge cluster via the compiled sekha-cluster-tool CLI. Use this skill whenever the user asks you to memorise, remember, save or store information use for later, whenever the user refers back to something they told you earlier that is not in your context, or whenever a task involves sensory filtering, associative recall, scratchpad deliberation, or episodic consolidation. Keywords - memorise, remember, persistent memory, cluster memory, sensory filter, associative recall, knowledge graph, deliberation, consolidate, orchestrate.
+description: Persistent cross-session memory and cognition on the tri-node edge cluster via the compiled sekha-cluster-tool CLI. Use this skill whenever the user asks you to memorize, memorise, remember, save or store information for later (configurations, credentials, parameters, project facts), whenever the user refers back to something they told you earlier that is not in your context, or whenever a task involves sensory filtering, associative recall, scratchpad deliberation, or episodic consolidation. Keywords - memorize, memorise, remember, store, persistent memory, cluster memory, sensory filter, associative recall, knowledge graph, deliberation, consolidate, orchestrate.
 disable-model-invocation: false
 user-invocable: true
 ---
@@ -12,7 +12,7 @@ This skill teaches the agent to externalise memory and reasoning onto the **Sekh
 
 ## Purpose & Scope
 * **When to use:**
-  * The user asks you to memorise, remember, or store facts for later. Your context does not survive session boundaries; a conversational "confirmed" without a cluster write will cause complete amnesia in future sessions.
+  * The user asks you to memorize/memorise, remember, or store facts for later. Your context does not survive session boundaries; a conversational "confirmed" without a cluster write will cause complete amnesia in future sessions.
   * The user refers to something they told you in an earlier session that is not in your context. Query the cluster before answering.
   * A raw, noisy, or high-volume stream (syslog, telemetry, sensor text) must be reduced to salient signal before reasoning.
   * A task needs grounding facts or related entities retrieved from long-term associative memory before acting.
@@ -68,7 +68,7 @@ sekha-cluster-tool consolidate --session-id "sess-memorise-<subject>" --goal "St
 ### Recall Protocol
 1. Run `sekha-cluster-tool recall --query "<subject name>" --top-k 8`.
 2. Find the `sensory_fact` node matching the subject and extract values verbatim from `summary` (not `label`).
-3. If the fact is not in the top 8, retry once with the subject name plus parameter keywords (e.g. `"<Subject> config"`).
+3. If the fact is not in the top 8, retry once with the subject name plus the parameter names you expect in the stored fact (e.g. `"<Subject> config: <PARAM_1> <PARAM_2> <PARAM_3>"`). A query of only `"<Subject> config"` is not enough to surface the fact once the graph holds other subjects.
 4. Never use another subject's values (e.g. do not substitute Kestrel's values when asked about Gannetry). If the answer is ungrounded, decline honestly.
 5. Ignore the dense 64-D float `"embedding"` array — do not carry it into context.
 
