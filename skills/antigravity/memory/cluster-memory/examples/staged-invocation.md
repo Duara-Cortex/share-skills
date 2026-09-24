@@ -98,7 +98,7 @@ sekha-cluster-tool recall \
 }
 ```
 
-*(Note: If Tier 1 recall had returned empty results or timed out, the agent would immediately invoke Tier 2 Antigravity Memory Fallback to inspect Antigravity auto-memory (`~/.gemini/`).)*
+*(Note: If Tier 1 recall had returned empty results or timed out, the agent would immediately invoke Tier 2 Antigravity Memory Fallback to inspect Antigravity auto-memory (resolved harness directory; never the user's working directory or repository).)*
 
 ---
 
@@ -176,4 +176,4 @@ sekha-cluster-tool consolidate \
 }
 ```
 
-*(Note: If memorising project invariants or configurations, the agent also records the facts to Antigravity auto-memory (`~/.gemini/`) before or simultaneously with cluster consolidation under the Dual-Write Contract.)*
+*(Note: If memorising project invariants or configurations, the agent also records the facts to Antigravity auto-memory (resolved harness directory; never the user's working directory or repository) before or simultaneously with cluster consolidation under the Dual-Write Contract.)*

@@ -26,10 +26,12 @@ The cluster **augments** Claude's own harness memory; it never replaces it. A du
 
 | Store | Location | Serves |
 | :--- | :--- | :--- |
-| Claude harness auto-memory | `~/.claude/memory/` | Verbatim facts; survives a cluster outage or offline work |
+| Claude harness auto-memory | `~/.claude/projects/<project>/memory/`, else `~/.claude/memory/` | Verbatim facts; survives a cluster outage or offline work |
 | Sekha cluster memory | Node 1 knowledge graph | Associative recall, relational edges, episodic traces |
 
-Retrieval runs the other way round: cluster recall first, then a fallback to `~/.claude/memory/` when recall is unreachable, degraded, or returns `"nodes": []`. Transient scratchpad state is written to neither store, and no memory file is ever created inside your working directory.
+The harness memory path differs between Claude setups — the project-scoped directory wins when it exists, otherwise the global one. Resolve it before writing; a write to a directory the harness never reads back is silently lost.
+
+Retrieval runs the other way round: cluster recall first, then a fallback to harness memory when recall is unreachable, degraded, or returns `"nodes": []`. Transient scratchpad state is written to neither store, and no memory file is ever created inside your working directory.
 
 ## When to use it
 
@@ -100,7 +102,7 @@ Every request carries an `X-Trace-ID` so operations can be correlated across clu
 
 The skill never fabricates a stage result. If the tool is missing or endpoints are blank, it stops and asks you to configure them. If a node is unreachable it degrades transparently: sensory/recall failures proceed with reduced confidence and a flagged stage, a scratchpad (Stage 3) failure halts the loop, and a consolidation failure still returns the reasoned action while noting the episode was not persisted.
 
-Because durable facts are dual-written, a cluster outage costs you recall quality rather than the fact itself — the `~/.claude/memory/` entry still holds it, and retrieval falls back to that tier automatically. The agent always says which tier answered, and which leg of a write failed, rather than implying a redundancy it did not achieve. See [`examples/fallback-degraded.md`](examples/fallback-degraded.md).
+Because durable facts are dual-written, a cluster outage costs you recall quality rather than the fact itself — the harness memory entry still holds it, and retrieval falls back to that tier automatically. The agent always says which tier answered, and which leg of a write failed, rather than implying a redundancy it did not achieve. See [`examples/fallback-degraded.md`](examples/fallback-degraded.md).
 
 ## Package layout
 
@@ -136,5 +138,5 @@ This loads `SKILL.md` as the system prompt, replays the nine multi-turn fixtures
 ## Conventions
 
 - **Decoupled:** zero hardcoded IPs; all endpoints come from `sekha-cluster-tool` `.env` configuration.
-- **Dual-written:** durable facts go to `~/.claude/memory/` *and* the cluster; never to your working directory.
+- **Dual-written:** durable facts go to harness memory *and* the cluster; never to your working directory.
 - **Licence:** Apache 2.0 (see the repository `LICENSE`).

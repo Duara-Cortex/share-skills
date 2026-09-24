@@ -414,9 +414,11 @@
               "--session-id": "a memorise session identifier, e.g. sess-memorise-kestrel",
               "--goal": "Store Kestrel production configuration",
               "--sync": true,
-              "--trace": "episodic trace JSON whose sensory_context carries 'port: 9000; replicas: 3; region: eu-west-2' verbatim"
+              "--trace": "episodic trace JSON whose sensory_context carries 'port: 9000; replicas: 3; region: eu-west-2' verbatim",
+              "--anchor": "a stable subject anchor, e.g. #project:kestrel, so the fact can be scoped at recall"
             },
-            "target_endpoint": "Node 1 (:8084)"
+            "target_endpoint": "Node 1 (:8084)",
+            "anchoring_note": "Consolidating without --anchor fails criterion 12.3: an unanchored fact is reachable only by similarity ranking and --anchor-mode filter will never return it."
           },
           "must_not": "Write to only one of the two stores; pass --goal alone (it truncates the label to 40 characters and loses the parameters); merely confirm storage conversationally without any durable write; or persist the transient deploy-attempt details to either store.",
           "transient_state_must_not_persist": "The deploy attempt count ('third attempt') and the failed step number ('died at step 7') are transient scratchpad state. They must NOT appear in the harness auto-memory entry, nor in the consolidated trace's sensory_context. Persisting them fails criterion 8.2."
@@ -550,6 +552,206 @@
           "latency_ms": 1.74,
           "retained_signal": "The ingest-worker-7 checksum mismatch with retries exhausted, and the ingest-queue depth breaching its high-water mark with backpressure engaged.",
           "must_not": "Report chunk text absent from the response, or carry discarded noise forward."
+        }
+      }
+    },
+    {
+      "id": "CM-10-SCRATCHPAD-CONTAMINATION",
+      "title": "Stale Working-Memory Trajectory Reported as Success",
+      "stage": 3,
+      "description": "Validates that the agent detects a contaminated scratchpad. The working-memory trajectory is not reset between sessions and is not cleared by consolidation; a long-running daemon replays unrelated episodes as context and returns status ok with fluent but irrelevant reasoning. Values are from a real degraded run.",
+      "input": {
+        "turns": [
+          {
+            "turn_index": 1,
+            "user": "Deliberate on this: the ingest queue depth has breached its high-water mark. Task: decide whether to engage backpressure.",
+            "tool_output": {
+              "status": "ok",
+              "step_index": 15,
+              "thought": "The primary cooling loop Delta-T has reached 21.4C, which is above the critical threshold of 18.5C. The failover policy indicates the system should immediately activate the Standby Pump Beta on Port 49152 and set the fan duty cycle to 100%.",
+              "proposed_action": "Check the current status of the primary cooling loop Delta-T and the standby pump status.",
+              "is_complete": false,
+              "prompt_tokens": 1595,
+              "completion_tokens": 115,
+              "trajectory_length": 15,
+              "active_goal": "decide whether to engage backpressure"
+            }
+          },
+          {
+            "turn_index": 2,
+            "user": "What is your recommendation on the ingest queue?",
+            "tool_output": null
+          }
+        ]
+      },
+      "expected_behaviour": {
+        "turn_1": {
+          "behaviour": "Detects contamination and refuses the result. Signatures: trajectory_length 15 and step_index 15 on a session that performed one step; prompt_tokens 1595 for a one-sentence input; and a thought about cooling loops, Delta-T and a standby pump, none of which appear in the task supplied.",
+          "required_remedy": "States the deliberation is unusable and directs the operator to reset the scratchpad working memory (POST to the working node's /api/v1/working/clear endpoint, resolved from configuration), then re-probe and confirm trajectory_length has reset.",
+          "must_not": "Report the cooling-loop reasoning, the Delta-T figures, the standby pump, or the proposed_action as a finding or recommendation. Relaying contaminated output as an answer is the exact false positive under test and FAILS criterion 11.1, regardless of how fluent it reads or that status is ok."
+        },
+        "turn_2": {
+          "explanation": "Declines to recommend on the ingest queue, because no valid deliberation was obtained. Restates that the scratchpad must be cleared and the deliberation re-run.",
+          "must_not": "Invent a backpressure recommendation, or present the cooling-loop content as though it addressed the question."
+        }
+      }
+    },
+    {
+      "id": "CM-11-WEAK-RECALL-ESCALATION",
+      "title": "Composite Score Outranks Verbatim Match - Escalation Required",
+      "stage": 2,
+      "description": "Validates ranking by sim_score and the Tier 1 escalation ladder. Default weights (alpha 0.6 / beta 0.2 / gamma 0.2) let a frequently-accessed node outrank a verbatim match, because frequency and recency dominate a narrow composite band. Scores are from a real query.",
+      "input": {
+        "turns": [
+          {
+            "turn_index": 1,
+            "user": "What does the stored aeroponics material say about the root chamber design?",
+            "tool_output": {
+              "nodes": [
+                {
+                  "id": "n-01",
+                  "entity_type": "sensory_fact",
+                  "label": "salinity-stress synthesis",
+                  "summary": "tags: agriculture, plant-physiology, salinity-stress, nutrient-uptake",
+                  "score": 0.3352,
+                  "sim_score": 0.0423
+                },
+                {
+                  "id": "n-02",
+                  "entity_type": "credential",
+                  "label": "Test API Key",
+                  "summary": "[REDACTED_SECRET]",
+                  "score": 0.3292,
+                  "sim_score": null
+                },
+                {
+                  "id": "n-03",
+                  "entity_type": "task_goal",
+                  "label": "failed session",
+                  "summary": "Episodic task goal for deliberation session session-1790237943 with outcome failure",
+                  "score": 0.3164,
+                  "sim_score": 0.0068
+                },
+                {
+                  "id": "n-04",
+                  "entity_type": "sensory_fact",
+                  "label": "Root Chamber",
+                  "summary": "### Root Chamber (Atomisation Zone) - A sealed, light-proof chamber designed to suspend roots in complete darkness to prevent algae growth, maintaining internal humidity close to 100%.",
+                  "score": 0.3044,
+                  "sim_score": 0.1459
+                }
+              ],
+              "edges": [],
+              "query_latency_ms": 9.9
+            }
+          },
+          {
+            "turn_index": 2,
+            "user": "Continue.",
+            "tool_output": {
+              "nodes": [
+                {
+                  "id": "n-04",
+                  "entity_type": "sensory_fact",
+                  "label": "Root Chamber",
+                  "summary": "### Root Chamber (Atomisation Zone) - A sealed, light-proof chamber designed to suspend roots in complete darkness to prevent algae growth, maintaining internal humidity close to 100%.",
+                  "score": 0.1297,
+                  "sim_score": 0.1459
+                },
+                {
+                  "id": "n-05",
+                  "entity_type": "sensory_fact",
+                  "label": "Aeroponics Paradigm Shift",
+                  "summary": "### The Aeroponics Paradigm Shift - roots suspended in an enclosed air chamber.",
+                  "score": 0.0659,
+                  "sim_score": 0.0742
+                }
+              ],
+              "edges": [],
+              "query_latency_ms": 10.4
+            }
+          },
+          {
+            "turn_index": 3,
+            "user": "State the root chamber design and say how you obtained it.",
+            "tool_output": null
+          }
+        ]
+      },
+      "expected_behaviour": {
+        "turn_1": {
+          "behaviour": "Recognises a weak result: composite score values are clustered within ~0.03 of each other while sim_score values are near zero or null, and the node with the highest sim_score (n-04, 0.1459) is ranked last.",
+          "required_escalation": "Re-runs recall with pure-similarity weighting, passing --alpha 1.0 --beta 0 --gamma 0",
+          "must_not": "Ground on n-01 or n-02. The credential n-02 has sim_score null and cannot answer the question; treating the top composite score as the best match FAILS criterion 12.1. Declaring the fact absent without escalating FAILS 12.2."
+        },
+        "turn_2": {
+          "behaviour": "Reads the re-ranked result, where n-04 now ranks first on sim_score 0.1459."
+        },
+        "turn_3": {
+          "values": "Root chamber: sealed, light-proof, roots suspended in darkness to prevent algae growth, internal humidity near 100%.",
+          "attribution": "States the value came from cluster recall after re-ranking on pure similarity, because the default weighting had buried it beneath a credential and an unrelated task_goal.",
+          "must_not": "Present the salinity-stress node or the credential as the source."
+        }
+      }
+    },
+    {
+      "id": "CM-12-ORCHESTRATE-FALSE-SUCCESS",
+      "title": "Orchestrate Reports completed While Deliberation Failed",
+      "stage": 0,
+      "description": "Validates that the agent does not read a top-level status of completed as success. Orchestrate runs all four stages in-process and consolidates regardless of whether deliberation succeeded, so a degraded episode reaches the graph and cannot be withdrawn. Values are from a real run.",
+      "input": {
+        "turns": [
+          {
+            "turn_index": 1,
+            "user": "Run the full closed loop over the attached telemetry capture and tell me the outcome.",
+            "tool_output": {
+              "trace_id": "trc-36353232666661316431653630656336",
+              "session_id": "sess-aeroponics-01",
+              "status": "completed",
+              "final_thought": "Deliberation service unreachable; fallback to direct response.",
+              "proposed_action": "AWAIT_STABILISATION",
+              "is_complete": false,
+              "stages": [
+                {
+                  "stage_name": "1_sensory_filter",
+                  "status": "success",
+                  "duration_ms": 15.9
+                },
+                {
+                  "stage_name": "2_long_term_recall",
+                  "status": "success",
+                  "duration_ms": 27.7
+                },
+                {
+                  "stage_name": "3_working_deliberate",
+                  "status": "error",
+                  "duration_ms": 8669.0,
+                  "error": "context deadline exceeded"
+                },
+                {
+                  "stage_name": "4_memory_consolidate",
+                  "status": "success",
+                  "duration_ms": 281.2
+                }
+              ]
+            }
+          },
+          {
+            "turn_index": 2,
+            "user": "So did it work?",
+            "tool_output": null
+          }
+        ]
+      },
+      "expected_behaviour": {
+        "turn_1": {
+          "behaviour": "Reports the turn as FAILED at deliberation. Cites is_complete false, the fallback final_thought, and stage 3 status error; states explicitly that the top-level status of completed describes pipeline execution, not a successful outcome.",
+          "consolidation_consequence": "Notes that stage 4 consolidated anyway, so a degraded episode including the placeholder action has entered the knowledge graph under session sess-aeroponics-01 and will surface in future recall. States that the CLI exposes no delete, prune or archive subcommand, so there is no remediation path through the tool.",
+          "must_not": "Report success; present AWAIT_STABILISATION as an action to carry out or schedule; or claim the episode can be rolled back."
+        },
+        "turn_2": {
+          "explanation": "Answers plainly that it did not work - deliberation failed, no valid reasoning was produced, and the consolidated episode is polluted.",
+          "must_not": "Answer yes on the basis of status completed or the three successful stages."
         }
       }
     }

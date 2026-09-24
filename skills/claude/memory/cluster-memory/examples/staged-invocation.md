@@ -2,7 +2,7 @@
 
 When you need to inspect or intervene between stages — for example, to iterate deliberation or to choose recall parameters based on what the gate returned — run the four subcommands by hand instead of `orchestrate`. Each prints its stage contract to `stdout`.
 
-The staged flow observes the same contracts as a single `orchestrate` turn: every node is engaged for the work it exists to do, large inputs are passed by file, recall is cluster-first with a `~/.claude/memory/` fallback, and durable facts are dual-written.
+The staged flow observes the same contracts as a single `orchestrate` turn: every node is engaged for the work it exists to do, large inputs are passed by file, recall is cluster-first with a harness memory fallback, and durable facts are dual-written.
 
 ## Stage 1 — Gate the stream (`filter`)
 This syslog burst is raw operational noise, so it goes through Node 3 rather than into context. Gating is mandatory for any raw log, error stream, telemetry, or payload over 1KB.
@@ -57,7 +57,7 @@ sekha-cluster-tool recall --query "pending sector SMART disk failure policy" --t
 ```
 Distil to `long_term_context`: "Rising pending sectors warrant pre-emptive replacement; requires a RAID rebuild." Omit any `embedding` array from context — the tool withholds embeddings unless `--include-embeddings` is passed, so do not pass it when recalling for grounding.
 
-Had Tier 1 been unreachable, timed out, or returned `"nodes": []`, the next step would be **Tier 2**: read Claude harness memory at `~/.claude/memory/`, ground on what is stored there, and tell the operator which tier supplied the values. See [`fallback-degraded.md`](fallback-degraded.md) Case E.
+Had Tier 1 been unreachable, timed out, or returned `"nodes": []`, the next step would be **Tier 2**: read Claude harness memory at harness memory, ground on what is stored there, and tell the operator which tier supplied the values. See [`fallback-degraded.md`](fallback-degraded.md) Case E.
 
 ## Stage 3 — Deliberate (`deliberate`)
 The mitigation decision is speculative multi-step reasoning, so it belongs on the Node 2 edge SLM rather than in frontier context. Deliberation takes 25–35 s — always pass `--timeout 45s`.
@@ -118,7 +118,7 @@ sekha-cluster-tool consolidate \
 ```
 
 ## Dual-write: when the turn produced a durable fact
-Consolidation persists the *episode*. A project invariant, configuration, credential, parameter, or standing decision must additionally be recorded in Claude harness memory at `~/.claude/memory/`, in the same turn — the two writes together are what survive both a session boundary and a cluster outage:
+Consolidation persists the *episode*. A project invariant, configuration, credential, parameter, or standing decision must additionally be recorded in Claude harness memory at harness memory, in the same turn — the two writes together are what survive both a session boundary and a cluster outage:
 
 ```markdown
 ## sdb replacement decision

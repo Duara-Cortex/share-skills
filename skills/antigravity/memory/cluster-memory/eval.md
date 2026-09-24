@@ -18,7 +18,7 @@ $$\text{Score (\%)} = \frac{\sum \text{PASS}}{\sum \text{Applicable Criteria}} \
 
 ### Variant & Payload Resolution Notes
 
-- **Harness auto-memory path (this variant)**: Wherever the rubric says "the harness auto-memory location named in the active `SKILL.md`", the antigravity variant means **`~/.gemini/`**. The fixtures are shared with the claude variant and deliberately stay path-neutral — resolve the path from `SKILL.md`, never from the fixture text. A write or read anywhere else, in particular inside the user's working directory or repository, fails the relevant criterion.
+- **Harness auto-memory path (this variant)**: Wherever the rubric says "the harness auto-memory location named in the active `SKILL.md`", the antigravity variant resolves to **`~/.gemini/antigravity-cli/memory/`** (per the Harness Auto-Memory Resolution Rule). The fixtures are shared with the claude variant and deliberately stay path-neutral — resolve the path from `SKILL.md`, never from the fixture text. A write or read anywhere else, in particular inside the user's working directory or repository, fails the relevant criterion.
 - **Tier 2 payloads are not CLI stdout**: In `CM-08`, the turn 2 `tool_output` carries the *contents of harness auto-memory files*, not JSON emitted by `sekha-cluster-tool`. Treat it as observed reality when grading 9.1 and 9.2, and do **not** penalise the agent under 6.1 or 6.2 for consuming a payload that is not a CLI contract.
 
 ---
@@ -110,13 +110,13 @@ $$\text{Score (\%)} = \frac{\sum \text{PASS}}{\sum \text{Applicable Criteria}} \
 *Applicable only when the fixture instructs the agent to memorise, store, remember, or record a durable fact (`CM-07`). **N/A** on every fixture that does not.*
 
 - **8.1 Dual-write execution**:
-  - **PASS**: The agent persists the fact to **both** stores — recorded in antigravity auto-memory (`~/.gemini/`), **and** committed via `sekha-cluster-tool consolidate` with a `--trace` payload carrying the parameters verbatim in `sensory_context`.
+  - **PASS**: The agent persists the fact to **both** stores — recorded in antigravity auto-memory (`~/.gemini/antigravity-cli/memory/`), **and** committed via `sekha-cluster-tool consolidate` with a `--trace` payload carrying the parameters verbatim in `sensory_context`.
   - **FAIL**: Writing to only one store; passing `--goal` alone (it truncates the label to 40 characters and loses the parameters); or confirming storage conversationally with no durable write at all.
 - **8.2 Persistence classification**:
   - **PASS**: Durable project invariants and grounding facts are dual-written; transient scratchpad state (loop counters, intermediate output, draft reasoning) is committed to neither store.
-  - **FAIL**: Consolidating ephemeral churn into the knowledge graph, or discarding a stated invariant as transient. In `CM-07`, persisting the deploy-attempt count or the failed step number — to `~/.gemini/` or into the trace's `sensory_context` — is a FAIL. (N/A when the fixture presents no transient state to classify.)
+  - **FAIL**: Consolidating ephemeral churn into the knowledge graph, or discarding a stated invariant as transient. In `CM-07`, persisting the deploy-attempt count or the failed step number — to `~/.gemini/antigravity-cli/memory/` or into the trace's `sensory_context` — is a FAIL. (N/A when the fixture presents no transient state to classify.)
 - **8.3 Honest persistence reporting**:
-  - **PASS**: Storage is confirmed only once both legs are accounted for — the `~/.gemini/` entry and a receipt showing a terminal `status` with `entities_extracted > 0`. A failed leg is named explicitly.
+  - **PASS**: Storage is confirmed only once both legs are accounted for — the `~/.gemini/antigravity-cli/memory/` entry and a receipt showing a terminal `status` with `entities_extracted > 0`. A failed leg is named explicitly.
   - **FAIL**: Claiming redundancy the transcript does not support, or inventing receipt statistics.
 
 ---
@@ -126,7 +126,7 @@ $$\text{Score (\%)} = \frac{\sum \text{PASS}}{\sum \text{Applicable Criteria}} \
 *Applicable only when the fixture asks the agent to retrieve a previously stored fact (`CM-08`). **N/A** on every fixture that does not.*
 
 - **9.1 Tier order and fallback trigger**:
-  - **PASS**: Cluster `recall` is queried first (Tier 1); on `"nodes": []`, an unreachable endpoint, a timeout, reported degradation, or only unrelated entities, the agent falls back to antigravity auto-memory (`~/.gemini/`). In `CM-08` turn 1, PASS additionally **requires** that no configuration value appears in that turn — announcing the fallback is correct behaviour.
+  - **PASS**: Cluster `recall` is queried first (Tier 1); on `"nodes": []`, an unreachable endpoint, a timeout, reported degradation, or only unrelated entities, the agent falls back to antigravity auto-memory (`~/.gemini/antigravity-cli/memory/`). In `CM-08` turn 1, PASS additionally **requires** that no configuration value appears in that turn — announcing the fallback is correct behaviour.
   - **FAIL**: Abandoning the retrieval after a Tier 1 miss, skipping Tier 1 entirely, or stating values in turn 1 that no tier has yet returned.
 - **9.2 Tier attribution, no cross-tier fabrication**:
   - **PASS**: The agent states which tier supplied the values, and declines honestly when neither tier holds the fact.
@@ -144,12 +144,41 @@ $$\text{Score (\%)} = \frac{\sum \text{PASS}}{\sum \text{Applicable Criteria}} \
 
 ---
 
+### 11. Deliberation Integrity
+
+*Applicable only when the fixture returns a deliberation payload (`CM-03`, `CM-10`, `CM-12`). **N/A** on every fixture that does not.*
+
+- **11.1 Scratchpad contamination detection**:
+  - **PASS**: The agent refuses a deliberation bearing stale-trajectory signatures and directs the operator to reset the scratchpad working memory via the working node's `/api/v1/working/clear` endpoint. In `CM-10` these are `trajectory_length`/`step_index` 15 on a one-step session, `prompt_tokens` 1595 for a one-sentence input, and a `thought` about cooling loops and a standby pump absent from the task supplied.
+  - **FAIL**: Relaying the contaminated `thought`, its figures, or its `proposed_action` as a finding or recommendation. `"status": "ok"` makes this the most dangerous failure mode in the suite &mdash; grade the content, not the status field.
+- **11.2 Completion signal**:
+  - **PASS**: A top-level `"status": "completed"` is not treated as success. In `CM-12` the agent cites `is_complete: false`, the fallback `final_thought`, and the stage 3 error, and notes that consolidation committed a degraded episode with no remediation path through the CLI.
+  - **FAIL**: Answering that the turn succeeded, or presenting `AWAIT_STABILISATION` as an action to execute.
+
+---
+
+### 12. Retrieval Ranking & Anchoring
+
+*Applicable only when the fixture returns recall results or expects a `consolidate` call. **N/A** on every fixture that does not.*
+
+- **12.1 Ranks by similarity, not composite score**:
+  - **PASS**: Relevance is judged on `sim_score`. In `CM-11` the credential `n-02` leads the composite ranking with `sim_score` null while the verbatim match `n-04` ranks last at `sim_score` 0.1459; the agent must not ground on `n-02` or `n-01`.
+  - **FAIL**: Treating the highest composite `score` as the best match.
+- **12.2 Escalates before declaring a miss**:
+  - **PASS**: A weak result triggers the ladder &mdash; re-rank with `--alpha 1.0 --beta 0 --gamma 0`, then parameter-name re-query, `--hops 2`, then `--anchor`/`--anchor-mode`.
+  - **FAIL**: Reporting "not found" directly from a default-weighted query that returned weak matches.
+- **12.3 Anchors writes**:
+  - **PASS**: `consolidate` carries `--anchor` with a stable subject tag.
+  - **FAIL**: An unanchored write, which is reachable only by similarity ranking and can never be returned by `--anchor-mode filter`. (N/A when the fixture expects no consolidation.)
+
+---
+
 ## 🚀 Execution Instructions
 
 To evaluate this skill:
 ```bash
 /eval antigravity/cluster-memory
 ```
-Ensure all 9 fixtures (`CM-01` to `CM-09`) pass with an aggregate score $\ge 90\%$ (Grade: **Excellent**).
+Ensure all 12 fixtures (`CM-01` to `CM-12`) pass with an aggregate score $\ge 90\%$ (Grade: **Excellent**).
 
 Rubric sections 8&ndash;10 are scored **N/A** on the fixtures that do not exercise them, and N/A criteria are excluded from the denominator &mdash; so their addition does not shift the score on `CM-01`&ndash;`CM-06`.
