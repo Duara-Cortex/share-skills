@@ -98,6 +98,24 @@ sekha-cluster-tool recall \
 }
 ```
 
+### Scoping and Shaping Recall
+
+When the subject was anchored at write time, scope recall by anchor and pick a lighter rendering for a quick check:
+
+```bash
+sekha-cluster-tool recall --query "ingest port" -a "#project:kestrel" --format concise
+```
+
+`-a` is the short form of `--anchor` (repeatable, or comma-delimited). The default `--anchor-mode boost` prefers anchored nodes while still ranking the rest; `--anchor-mode filter` returns only nodes carrying the anchor, so an unanchored fact is never returned in that mode. `--format` accepts `json` (default), `concise`, or `markdown` — keep `json` whenever the output is parsed against [`../schema/recall.json`](../schema/recall.json). Matching nodes report an `anchor_score` alongside the other score components.
+
+To narrow by ontological class and drop weak matches, filter by entity type and composite score:
+
+```bash
+sekha-cluster-tool recall --query "policy" --type policy --min-score 0.70
+```
+
+`--type` (`-t`) restricts results to one `entity_type` (e.g. `config`, `fact`, `policy`); `--min-score` discards nodes whose composite `score` falls below the threshold. An empty result under a threshold is a miss for this query, not proof the fact is absent — relax `--min-score` before escalating.
+
 *(Note: If Tier 1 recall had returned empty results or timed out, the agent would immediately invoke Tier 2 Antigravity Memory Fallback to inspect Antigravity auto-memory (resolved harness directory; never the user's working directory or repository).)*
 
 ---
@@ -174,6 +192,16 @@ sekha-cluster-tool consolidate \
   "decay_applied": true,
   "latency_ms": 3.12
 }
+```
+
+Anchor the write so the episode can be scoped precisely at recall. `--anchor` (`-a`) attaches the tags to the committed entities, which is what makes `--anchor-mode filter` usable later:
+
+```bash
+sekha-cluster-tool consolidate \
+  --session-id "sess-01" \
+  --goal "Commit config" \
+  --anchor "#project:kestrel" \
+  --sync
 ```
 
 *(Note: If memorising project invariants or configurations, the agent also records the facts to Antigravity auto-memory (resolved harness directory; never the user's working directory or repository) before or simultaneously with cluster consolidation under the Dual-Write Contract.)*

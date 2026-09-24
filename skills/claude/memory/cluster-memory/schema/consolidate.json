@@ -45,7 +45,7 @@
   "properties": {
     "request": {
       "type": "object",
-      "description": "Episodic trace committed to Node 1. Populated from the CLI flags --goal, --outcome, --session-id, and --sync.",
+      "description": "Episodic trace committed to Node 1. Populated from the CLI flags --goal, --outcome, --session-id, --anchor, and --sync.",
       "properties": {
         "trace_id": { "type": "string", "description": "Correlating distributed trace identifier; echoed from X-Trace-ID when omitted." },
         "session_id": { "type": "string", "description": "Deliberation session identifier (CLI flag --session-id)." },
@@ -56,7 +56,8 @@
         "sensory_context": { "type": "array", "items": { "$ref": "#/definitions/SensoryItem" }, "description": "Salient chunks preserved with the episode." },
         "trajectory": { "type": "array", "items": { "$ref": "#/definitions/TrajectoryStep" }, "description": "Ordered reasoning steps of the episode." },
         "candidate_actions": { "type": "array", "items": { "$ref": "#/definitions/CandidateAction" }, "description": "Actions considered during deliberation." },
-        "synchronous": { "type": "boolean", "description": "When true (CLI flag --sync), block until consolidation statistics are available; otherwise queue for background fusion and decay." }
+        "synchronous": { "type": "boolean", "description": "When true (CLI flag --sync), block until consolidation statistics are available; otherwise queue for background fusion and decay." },
+        "anchors": { "type": "array", "items": { "type": "string" }, "description": "Anchor tags attached to committed entities (CLI flag --anchor / -a; repeatable or comma-delimited)." }
       },
       "required": ["session_id"]
     },
