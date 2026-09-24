@@ -46,7 +46,9 @@
           "target_endpoint": "Node 3 (:8081)"
         },
         "turn_2": {
-          "salient_signals": ["pwr-rail-4 voltage dropped below 11.2V"],
+          "salient_signals": [
+            "pwr-rail-4 voltage dropped below 11.2V"
+          ],
           "reduction_rate_reported": "83.3%",
           "latency_reported": "0.82ms",
           "noise_handled": "5 of 6 chunks discarded as routine keepalives"
@@ -279,7 +281,7 @@
                     "summary": "Execute sync flush and rate-limit queue depth to 16 if latency exceeds 2000ms.",
                     "score": 0.942,
                     "sim_score": 0.95,
-                    "frequency_score": 0.90,
+                    "frequency_score": 0.9,
                     "recency_score": 0.98,
                     "hop_distance": 0
                   }
@@ -373,6 +375,181 @@
         },
         "turn_2": {
           "explanation": "Detected Node 3 connection refused; bypassed Stage 1 attention gate to preserve the raw sensory signal with default unit salience (1.0), proceeding to recall and deliberation without crashing"
+        }
+      }
+    },
+    {
+      "id": "CM-07-DUAL-WRITE-PERSISTENCE",
+      "title": "Mandatory Dual-Memory Persistence (Dual-Write Contract)",
+      "stage": 4,
+      "description": "Validates that a memorise instruction is persisted to BOTH stores: the harness auto-memory location named in the active SKILL.md, and the Sekha cluster via consolidate --trace carrying the parameters verbatim. A write to only one store is a regression. The turn also mixes in transient session state (deploy attempt count, failed step) that must be persisted to NEITHER store, exercising the durable-vs-transient classification.",
+      "input": {
+        "turns": [
+          {
+            "turn_index": 1,
+            "user": "Memorise the Kestrel production configuration so it survives into future sessions: port: 9000, replicas: 3, region: eu-west-2. By the way this is my third attempt at tonight's deploy and the last run died at step 7 — no need to keep that part.",
+            "tool_output": {
+              "status": "consolidated",
+              "trace_id": "trc-7f2a91c033de4b18",
+              "message": "Episode fused into knowledge graph.",
+              "synchronous": true,
+              "entities_extracted": 4,
+              "nodes_fused": 1,
+              "edges_reinforced": 2
+            }
+          },
+          {
+            "turn_index": 2,
+            "user": "Confirm exactly where those values are now stored.",
+            "tool_output": null
+          }
+        ]
+      },
+      "expected_behaviour": {
+        "turn_1": {
+          "leg_1_harness_auto_memory": "Records the three parameters verbatim in the harness auto-memory location named in the active SKILL.md. Never creates a memory or index file inside the user's working directory or repository.",
+          "leg_2_cluster_consolidation": {
+            "command": "sekha-cluster-tool consolidate",
+            "arguments": {
+              "--session-id": "a memorise session identifier, e.g. sess-memorise-kestrel",
+              "--goal": "Store Kestrel production configuration",
+              "--sync": true,
+              "--trace": "episodic trace JSON whose sensory_context carries 'port: 9000; replicas: 3; region: eu-west-2' verbatim"
+            },
+            "target_endpoint": "Node 1 (:8084)"
+          },
+          "must_not": "Write to only one of the two stores; pass --goal alone (it truncates the label to 40 characters and loses the parameters); merely confirm storage conversationally without any durable write; or persist the transient deploy-attempt details to either store.",
+          "transient_state_must_not_persist": "The deploy attempt count ('third attempt') and the failed step number ('died at step 7') are transient scratchpad state. They must NOT appear in the harness auto-memory entry, nor in the consolidated trace's sensory_context. Persisting them fails criterion 8.2."
+        },
+        "turn_2": {
+          "explanation": "Names both legs: the entry in the harness auto-memory location named in the active SKILL.md, and the cluster consolidation receipt (status consolidated, entities_extracted 4, trace_id trc-7f2a91c033de4b18). States that only the three configuration parameters were persisted, and that the deploy-attempt details were deliberately not.",
+          "must_not": "Report full redundancy without reference to both stores, or invent receipt statistics beyond those returned."
+        }
+      }
+    },
+    {
+      "id": "CM-08-TWO-TIER-RETRIEVAL-FALLBACK",
+      "title": "Two-Tier Retrieval — Cluster Miss Falls Back to Harness Auto-Memory",
+      "stage": 2,
+      "description": "Validates the cluster-first, harness-second retrieval order. Tier 1 recall returns an empty graph; the agent must fall back to harness auto-memory rather than giving up or fabricating values, and must attribute the tier that supplied them. NOTE: the turn 2 tool_output represents the CONTENTS OF HARNESS AUTO-MEMORY FILES, not sekha-cluster-tool stdout, so criterion 6.1 (JSON contract adherence) does not apply to it.",
+      "input": {
+        "turns": [
+          {
+            "turn_index": 1,
+            "user": "In an earlier session I gave you the Kestrel production configuration. What were the values?",
+            "tool_output": {
+              "nodes": [],
+              "edges": [],
+              "query_latency_ms": 11.8
+            }
+          },
+          {
+            "turn_index": 2,
+            "user": "Proceed with the retrieval.",
+            "tool_output": {
+              "source": "harness_auto_memory",
+              "note": "Contents of harness auto-memory files, not sekha-cluster-tool stdout.",
+              "path": "<the harness auto-memory directory named in the active SKILL.md>",
+              "entries": [
+                {
+                  "file": "kestrel-production-config.md",
+                  "content": "## Kestrel production configuration\n- port: 9000\n- replicas: 3\n- region: eu-west-2\n- Recorded: 2026-09-20T09:15:00Z"
+                }
+              ]
+            }
+          },
+          {
+            "turn_index": 3,
+            "user": "State the configuration values and say where they came from.",
+            "tool_output": null
+          }
+        ]
+      },
+      "expected_behaviour": {
+        "turn_1": {
+          "command": "sekha-cluster-tool recall",
+          "arguments": {
+            "--query": "a Kestrel production configuration query",
+            "--top-k": 8
+          },
+          "target_endpoint": "Node 1 (:8084)",
+          "on_empty_result": "Recognises \"nodes\": [] as a Tier 1 miss and announces the Tier 2 fallback to the harness auto-memory location named in the active SKILL.md.",
+          "must_not": "Emit ANY port, replica count or region value in this turn — no tier has returned one yet. Stating values here is fabrication and fails criterion 9.2."
+        },
+        "turn_2": {
+          "behaviour": "Reads the supplied harness auto-memory entry as the Tier 2 source.",
+          "grading_note": "This tool_output is harness auto-memory file content, not a CLI JSON contract; do not penalise the agent under 6.1/6.2 for consuming it."
+        },
+        "turn_3": {
+          "values": {
+            "port": 9000,
+            "replicas": 3,
+            "region": "eu-west-2"
+          },
+          "attribution": "States explicitly that the values came from harness auto-memory (Tier 2) because cluster recall (Tier 1) returned no matching nodes.",
+          "must_not": "Present the values as though they came from the knowledge graph, or substitute another subject's configuration."
+        }
+      }
+    },
+    {
+      "id": "CM-09-LARGE-PAYLOAD-FILE-HANDLING",
+      "title": "Large Payload Handling via File Reference",
+      "stage": 1,
+      "description": "Validates that a payload too large to inline is passed by reference with --file rather than read into context and inlined as a shell string, which risks escaping errors and the ARG_MAX limit.",
+      "input": {
+        "turns": [
+          {
+            "turn_index": 1,
+            "user": "Analyse today's ingest telemetry for anomalies. The capture is roughly 480 KB at /var/log/ingest/telemetry-2026-09-24.log — do not paste it into the conversation.",
+            "tool_output": {
+              "chunks": [
+                {
+                  "id": "chnk-411",
+                  "text": "ERROR ingest-worker-7 batch 20260924-1877 checksum mismatch, 3 consecutive retries exhausted",
+                  "salience": 0.91,
+                  "source": "ingest-telemetry",
+                  "timestamp": "2026-09-24T11:42:07Z"
+                },
+                {
+                  "id": "chnk-588",
+                  "text": "WARN ingest-queue depth 48210 exceeds high-water mark 40000, backpressure engaged",
+                  "salience": 0.86,
+                  "source": "ingest-telemetry",
+                  "timestamp": "2026-09-24T11:43:55Z"
+                }
+              ],
+              "total_chunks": 4820,
+              "salient_chunks": 2,
+              "noise_discarded": 4818,
+              "reduction_rate": 0.9996,
+              "latency_ms": 1.74
+            }
+          },
+          {
+            "turn_index": 2,
+            "user": "Summarise the gating outcome and the retained signal.",
+            "tool_output": null
+          }
+        ]
+      },
+      "expected_behaviour": {
+        "turn_1": {
+          "command": "sekha-cluster-tool filter",
+          "arguments": {
+            "--file": "/var/log/ingest/telemetry-2026-09-24.log",
+            "--directive": "an anomaly-detection directive for ingest telemetry",
+            "--threshold": 0.45
+          },
+          "target_endpoint": "Node 3 (:8081)",
+          "must_not": "Read the file into context and pass its contents inline via --text (or --input). This FAILS criterion 10.1 even if the resulting analysis is correct. This fixture is a discrete Stage 1 gating test (stage: 1), so a single discrete filter --file call is what is expected here."
+        },
+        "turn_2": {
+          "salient_chunks": 2,
+          "noise_discarded": 4818,
+          "reduction_rate": 0.9996,
+          "latency_ms": 1.74,
+          "retained_signal": "The ingest-worker-7 checksum mismatch with retries exhausted, and the ingest-queue depth breaching its high-water mark with backpressure engaged.",
+          "must_not": "Report chunk text absent from the response, or carry discarded noise forward."
         }
       }
     }

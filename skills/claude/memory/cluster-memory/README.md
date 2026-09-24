@@ -2,7 +2,7 @@
 
 A declarative skill that lets an AI agent externalise memory and reasoning onto the **Sekha Tri-Node Edge Cognitive Cluster**, instead of holding an entire noisy stream and every recalled fact in its context window.
 
-The skill does not talk to the nodes directly. It drives the compiled **[`sekha-cluster-tool`](https://github.com/Duara-Cortex/sekha-cluster-tool)** CLI (`>= v1.0.1`), which coordinates the cluster deterministically. A compiled binary keeps behaviour stable and prevents runtime drift across harnesses.
+The skill does not talk to the nodes directly. It drives the compiled **[`sekha-cluster-tool`](https://github.com/Duara-Cortex/sekha-cluster-tool)** CLI (`>= v1.0.5`), which coordinates the cluster deterministically. A compiled binary keeps behaviour stable and prevents runtime drift across harnesses.
 
 > This is the **claude** variant. An antigravity variant lives alongside it under `skills/antigravity/memory/cluster-memory/`.
 
@@ -20,18 +20,30 @@ Cognition is routed through four discrete stages, each served by a dedicated nod
 | 4. Episodic consolidation | `consolidate` | Knowledge Graph Store (`:8084`) | Commit the episode so future recall improves |
 | Full closed loop | `orchestrate` | All three layers | Run all four stages in one traced turn |
 
+### Dual-memory persistence
+
+The cluster **augments** Claude's own harness memory; it never replaces it. A durable fact — a configuration, credential, parameter, policy, or standing decision — is written to **both** stores in the same turn:
+
+| Store | Location | Serves |
+| :--- | :--- | :--- |
+| Claude harness auto-memory | `~/.claude/memory/` | Verbatim facts; survives a cluster outage or offline work |
+| Sekha cluster memory | Node 1 knowledge graph | Associative recall, relational edges, episodic traces |
+
+Retrieval runs the other way round: cluster recall first, then a fallback to `~/.claude/memory/` when recall is unreachable, degraded, or returns `"nodes": []`. Transient scratchpad state is written to neither store, and no memory file is ever created inside your working directory.
+
 ## When to use it
 
 - A raw, noisy, or high-volume stream (syslog, telemetry, sensor text) must be reduced before reasoning.
 - A task needs grounding facts or related entities from long-term memory before acting.
 - A multi-step decision benefits from an explicit, inspectable reasoning trajectory.
 - A completed episode should be persisted to long-term memory.
+- You want a fact to survive the session boundary — it is dual-written, so a cluster outage does not lose it.
 
 Skip it when the task is self-contained and needs no external memory.
 
 ## Prerequisites
 
-1. **`sekha-cluster-tool >= v1.0.1`** on `PATH`. Verify with `sekha-cluster-tool --version`.
+1. **`sekha-cluster-tool >= v1.0.5`** on `PATH`. Verify with `sekha-cluster-tool --version`. The `v1.0.5` floor is what supports the file-based input forms (`filter --file`, `orchestrate --file`, `consolidate --trace <path>`) the skill uses for large payloads.
 2. **Configured endpoints.** All node addresses default to blank and must be supplied — there are no baked-in IPs.
 
 ## Configuration
@@ -69,15 +81,26 @@ sekha-cluster-tool orchestrate \
 ```bash
 sekha-cluster-tool filter      --text "<raw stream>" --directive "<what to attend to>" --threshold 0.45
 sekha-cluster-tool recall      --query "<salient concept>" --top-k 5
-sekha-cluster-tool deliberate  --task "<objective>" --input "<observation>" --context "<grounding fact>"
+sekha-cluster-tool deliberate  --task "<objective>" --input "<observation>" --context "<grounding fact>" --timeout 45s
 sekha-cluster-tool consolidate --goal "<objective>" --outcome "success" --session-id "<id>" --sync
+```
+
+Edge SLM deliberation on Node 2 takes 25–35 s, hence `--timeout 45s`.
+
+**Large payloads.** When an input exceeds 1KB or spans multiple lines, pass it by reference rather than inlining it — this avoids shell escaping errors and the `ARG_MAX` limit:
+```bash
+sekha-cluster-tool filter      --file <path> --directive "<what to attend to>"   # or --file - for stdin
+sekha-cluster-tool orchestrate --file <path> --directive "<goal>" --sync
+sekha-cluster-tool consolidate --session-id "<id>" --goal "<objective>" --trace <path/to/trace.json> --sync
 ```
 
 Every request carries an `X-Trace-ID` so operations can be correlated across cluster logs. Diagnostic step logs go to `stderr` under `--verbose`; only `stdout` carries the JSON contract.
 
 ## Graceful degradation
 
-The skill never fabricates a stage result. If the tool is missing or endpoints are blank, it stops and asks you to configure them. If a node is unreachable it degrades transparently: sensory/recall failures proceed with reduced confidence and a flagged stage, a scratchpad (Stage 3) failure halts the loop, and a consolidation failure still returns the reasoned action while noting the episode was not persisted. See [`examples/fallback-degraded.md`](examples/fallback-degraded.md).
+The skill never fabricates a stage result. If the tool is missing or endpoints are blank, it stops and asks you to configure them. If a node is unreachable it degrades transparently: sensory/recall failures proceed with reduced confidence and a flagged stage, a scratchpad (Stage 3) failure halts the loop, and a consolidation failure still returns the reasoned action while noting the episode was not persisted.
+
+Because durable facts are dual-written, a cluster outage costs you recall quality rather than the fact itself — the `~/.claude/memory/` entry still holds it, and retrieval falls back to that tier automatically. The agent always says which tier answered, and which leg of a write failed, rather than implying a redundancy it did not achieve. See [`examples/fallback-degraded.md`](examples/fallback-degraded.md).
 
 ## Package layout
 
@@ -108,9 +131,10 @@ The skill ships with a self-scoring eval. From the `share-skills` repo root:
 /eval claude/cluster-memory
 ```
 
-This loads `SKILL.md` as the system prompt, replays the multi-turn fixtures in [`evals/fixtures/cluster-memory.json`](../../../../evals/fixtures/cluster-memory.json) (with simulated tool output — no live cluster required), and grades the transcript against [`evals/rubrics/cluster-memory.md`](../../../../evals/rubrics/cluster-memory.md) using the calibration guide in [`eval.md`](eval.md). See [`eval.md`](eval.md) for details.
+This loads `SKILL.md` as the system prompt, replays the nine multi-turn fixtures (`CM-01`–`CM-09`) in [`evals/fixtures/cluster-memory.json`](../../../../evals/fixtures/cluster-memory.json) (with simulated tool output — no live cluster required), and grades the transcript against [`evals/rubrics/cluster-memory.md`](../../../../evals/rubrics/cluster-memory.md) using the calibration guide in [`eval.md`](eval.md). See [`eval.md`](eval.md) for details.
 
 ## Conventions
 
 - **Decoupled:** zero hardcoded IPs; all endpoints come from `sekha-cluster-tool` `.env` configuration.
+- **Dual-written:** durable facts go to `~/.claude/memory/` *and* the cluster; never to your working directory.
 - **Licence:** Apache 2.0 (see the repository `LICENSE`).

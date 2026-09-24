@@ -16,6 +16,7 @@ An edge sensory collector receives an anomalous hardware event on the telemetry 
 sekha-cluster-tool orchestrate \
   --input "CRITICAL kernel panic risk: nvme0n1 write latency spiked to 4200ms, queue depth 64" \
   --directive "Resolve storage latency crisis" \
+  --anchor "#infrastructure:storage" \
   --trace-id "trc-stor-0099" \
   --sync
 ```
@@ -145,7 +146,7 @@ sekha-cluster-tool orchestrate \
 ## 4. Agent Analysis & Interpretation
 
 1. **Stage 1 (Sensory Gating)**: The anomalous chunk scored a high salience of `0.98`, exceeding the default threshold (`0.45`). The attention gate completed in `0.95ms`.
-2. **Stage 2 (Associative Recall)**: Retrieved the governing runbook node (`ent-nvme-flush`) with a composite ranking score of `0.942` (`sim_score: 0.95`).
+2. **Stage 2 (Associative Recall)**: Retrieved the governing runbook node (`ent-nvme-flush`) ranked primarily by `sim_score: 0.95` (composite score `0.942`).
 3. **Stage 3 (Scratchpad Deliberation)**: The local SLM on Node 2 evaluated the rule conditions and formulated a concrete action: `throttle_queue_and_flush(dev='nvme0n1', max_depth=16)`. The step flagged `is_complete: true`.
 4. **Stage 4 (Episodic Consolidation)**: The episode was persisted to Node 1 (`episode_id: ep-stor-0099`), reinforcing the node and applying background Hebbian decay in `2.85ms`.
 5. **Telemetry & Budgets**: Total latency across all four distributed nodes was `184.2ms`, well within the sub-second per-hop SLA.

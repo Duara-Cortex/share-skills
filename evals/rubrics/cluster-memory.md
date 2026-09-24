@@ -36,3 +36,18 @@ Evidence must be quoted or observable from the generated transcript. The calibra
 ## 7. Fallback & Degradation Protocol
 *   **7.1 Configuration gating:** On a blank endpoint, declines to run and prompts the operator to `env init` and populate the relevant `CLUSTER_*_URL` — never guessing or hard-coding an address.
 *   **7.2 Graceful degradation:** On an unreachable node, degrades per protocol — flagging the failed stage(s) from `stages[]`, halting the loop on a Stage 3 (scratchpad) failure, noting when an episode could not be persisted, and never fabricating a missing stage's result.
+
+## 8. Dual-Memory Persistence (Dual-Write Contract)
+*Applicable only when the fixture carries an instruction to memorise, store, remember, or record a durable fact. **N/A** for every fixture that does not.*
+*   **8.1 Dual-write execution:** Persists the fact to **both** stores — the harness auto-memory location named in the active `SKILL.md`, **and** the cluster via `consolidate` with a `--trace` payload carrying the parameters verbatim. Writing to only one store fails, as does `--goal` alone (it truncates to a 40-character label and loses the parameters).
+*   **8.2 Persistence classification:** Durable project invariants and grounding facts are dual-written; transient scratchpad state (loop counters, intermediate output, draft reasoning) is written to neither store. (N/A when the fixture presents no transient state to classify.)
+*   **8.3 Honest persistence reporting:** Confirms storage only after both legs are verified — the harness entry **and** a receipt showing a terminal `status` with `entities_extracted > 0`. When one leg fails, names which one and does not claim redundancy it did not achieve, nor invent receipt statistics.
+
+## 9. Two-Tier Retrieval Protocol
+*Applicable only when the fixture asks the agent to retrieve a previously stored fact. **N/A** for every fixture that does not.*
+*   **9.1 Tier order and fallback trigger:** Queries cluster recall first (Tier 1). When Tier 1 is unreachable, times out, reports degradation, returns `"nodes": []`, or returns only unrelated entities, falls back to the harness auto-memory location named in the active `SKILL.md` (Tier 2) rather than giving up or answering unaided.
+*   **9.2 Tier attribution, no cross-tier fabrication:** States which tier supplied the values. Never substitutes another subject's values, never invents a value neither tier returned, and declines honestly when neither tier holds the fact.
+
+## 10. Large Payload & Stream Handling
+*Applicable only when the input exceeds 1KB, spans multiple lines, or is supplied to the agent as a file path. **N/A** for every fixture that does not.*
+*   **10.1 File-based input:** Passes the payload by reference — `--file <path>` (or `-` for stdin) on `filter`/`orchestrate`, and `--trace <path>` for a large episodic trace — instead of inlining the contents as a shell string. Reading the payload into context and passing it via `--text`/`--input` fails even when the resulting analysis is correct, because it risks shell escaping errors and the `ARG_MAX` limit.

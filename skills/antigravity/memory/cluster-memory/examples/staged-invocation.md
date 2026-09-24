@@ -1,12 +1,12 @@
 # Example: Staged Cognitive Invocation
 
-This walkthrough illustrates how to execute discrete, step-by-step cognitive invocations across individual cluster nodes when fine-grained control or intermediate intervention is required.
+This walkthrough illustrates how to execute discrete, step-by-step cognitive invocations across individual cluster nodes when fine-grained control or intermediate intervention is required, adhering strictly to tripartite operational mandates and dual-memory persistence.
 
 ---
 
 ## Stage 1: Sensory Filtering on Node 3
 
-When high-frequency sensory observations or syslog bursts arrive, filter the stream using Node 3 to eliminate background noise:
+Per the **Sensory Gating Mandate**, whenever high-frequency sensory observations, error streams, API payloads exceeding 1KB, or syslog bursts arrive, filter the stream using Node 3 rather than ingesting raw noise directly into frontier LLM context:
 
 ```bash
 sekha-cluster-tool filter \
@@ -39,7 +39,7 @@ sekha-cluster-tool filter \
 
 ## Stage 2: Associative Recall Grounding on Node 1
 
-Extract the salient text (`ALERT: pwr-rail-4 voltage dropped below 11.2V`) and ground the concept in the long-term knowledge graph:
+Extract the salient text (`ALERT: pwr-rail-4 voltage dropped below 11.2V`) and ground the concept in the long-term knowledge graph (Tier 1 retrieval):
 
 ```bash
 sekha-cluster-tool recall \
@@ -98,17 +98,20 @@ sekha-cluster-tool recall \
 }
 ```
 
+*(Note: If Tier 1 recall had returned empty results or timed out, the agent would immediately invoke Tier 2 Antigravity Memory Fallback to inspect Antigravity auto-memory (`~/.gemini/`).)*
+
 ---
 
 ## Stage 3: Working Memory Deliberation on Node 2
 
-Format the task objective, salient observation, and distilled graph facts into the scratchpad:
+Per the **Working Scratchpad Mandate**, offload multi-step hypothesis evaluation, diagnostic deliberation, and candidate action planning to the local edge SLM on Node 2 rather than burning frontier LLM tokens:
 
 ```bash
 sekha-cluster-tool deliberate \
   --task "Engage auxiliary power bus" \
   --input "pwr-rail-4 measured at 11.18V for 750ms" \
-  --context "[policy: Power Rail Redundancy Policy] Transfer to Auxiliary Power Bus B"
+  --context "[policy: Power Rail Redundancy Policy] Transfer to Auxiliary Power Bus B" \
+  --timeout 45s
 ```
 
 ### Response (`stdout`)
@@ -146,13 +149,14 @@ sekha-cluster-tool deliberate \
 
 ## Stage 4: Episodic Consolidation on Node 1
 
-Once the action has been committed, persist the session outcome back to the long-term knowledge graph for Hebbian reinforcement:
+Once the action has been committed, persist the session outcome back to the long-term knowledge graph for Hebbian reinforcement and decay tracking:
 
 ```bash
 sekha-cluster-tool consolidate \
   --goal "Engage auxiliary power bus" \
   --outcome "success" \
   --session-id "sess-pwr-20260914" \
+  --anchor "#facility:power-grid" \
   --sync
 ```
 
@@ -171,3 +175,5 @@ sekha-cluster-tool consolidate \
   "latency_ms": 3.12
 }
 ```
+
+*(Note: If memorising project invariants or configurations, the agent also records the facts to Antigravity auto-memory (`~/.gemini/`) before or simultaneously with cluster consolidation under the Dual-Write Contract.)*
