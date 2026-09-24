@@ -20,7 +20,8 @@
         "archived_at": { "type": ["string", "null"], "format": "date-time" },
         "access_count": { "type": "integer", "description": "Number of times the node has been recalled; feeds the frequency score." },
         "stability_score": { "type": "number", "description": "Hebbian stability; higher scores decay more slowly." },
-        "is_archived": { "type": "boolean" }
+        "is_archived": { "type": "boolean" },
+        "anchors": { "type": "array", "items": { "type": "string" }, "description": "Anchor tags attached to the entity at consolidation time." }
       },
       "required": ["id", "entity_type", "label", "summary", "created_at", "last_accessed_at", "access_count", "stability_score", "is_archived"]
     },
@@ -34,7 +35,8 @@
             "sim_score": { "type": "number", "description": "Semantic (vector) similarity component." },
             "frequency_score": { "type": "number", "description": "Access-frequency component." },
             "recency_score": { "type": "number", "description": "Recency-decay component." },
-            "hop_distance": { "type": "integer", "description": "Graph hops from the seed match (0 = direct hit, 1 = one-hop neighbour)." }
+            "hop_distance": { "type": "integer", "description": "Graph hops from the seed match (0 = direct hit, 1 = one-hop neighbour)." },
+            "anchor_score": { "type": "number", "description": "Anchor tag match score component." }
           },
           "required": ["score", "sim_score", "frequency_score", "recency_score", "hop_distance"]
         }
@@ -57,7 +59,7 @@
   "properties": {
     "request": {
       "type": "object",
-      "description": "Payload dispatched to Node 1. Populated from the CLI flags --query and --top-k.",
+      "description": "Payload dispatched to Node 1. Populated from the CLI flags --query, --top-k, --include-embeddings, --format, --anchor, --anchor-mode, --type and --min-score.",
       "properties": {
         "query": { "type": "string", "description": "Natural-language concept to ground (CLI flag --query)." },
         "embedding": { "type": "array", "items": { "type": "number" }, "description": "Optional precomputed query vector; supplied in place of --query." },
@@ -66,7 +68,13 @@
         "alpha": { "type": "number", "description": "Weight for semantic similarity (default 0.6)." },
         "beta": { "type": "number", "description": "Weight for access-count frequency (default 0.2)." },
         "gamma": { "type": "number", "description": "Weight for recency decay (default 0.2)." },
-        "expand_hops": { "type": "integer", "description": "Graph expansion depth: 0 or 1 (default 1)." }
+        "expand_hops": { "type": "integer", "description": "Graph expansion depth: 0 or 1 (default 1)." },
+        "include_embeddings": { "type": "boolean", "description": "When true (CLI flag --include-embeddings), returns 64-D vector floats; default false." },
+        "format": { "type": "string", "enum": ["json", "concise", "markdown"], "description": "Output rendering format (CLI flag --format; default 'json')." },
+        "anchors": { "type": "array", "items": { "type": "string" }, "description": "Target anchor tags for scoping recall (CLI flag --anchor / -a; repeatable or comma-delimited)." },
+        "anchor_mode": { "type": "string", "enum": ["boost", "filter"], "description": "Anchor matching mode (CLI flag --anchor-mode; default 'boost')." },
+        "type": { "type": "string", "description": "Entity type filter (CLI flag --type / -t; e.g. config, fact, policy)." },
+        "min_score": { "type": "number", "description": "Minimum composite score threshold (CLI flag --min-score)." }
       }
     },
     "response": {

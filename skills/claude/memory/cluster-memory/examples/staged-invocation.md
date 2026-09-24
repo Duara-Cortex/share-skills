@@ -57,6 +57,21 @@ sekha-cluster-tool recall --query "pending sector SMART disk failure policy" --t
 ```
 Distil to `long_term_context`: "Rising pending sectors warrant pre-emptive replacement; requires a RAID rebuild." Omit any `embedding` array from context — the tool withholds embeddings unless `--include-embeddings` is passed, so do not pass it when recalling for grounding.
 
+### Scoping and shaping recall
+When the subject was anchored at write time, scope recall by anchor and pick a lighter rendering for a quick check:
+
+```bash
+sekha-cluster-tool recall --query "ingest port" -a "#project:kestrel" --format concise
+```
+`-a` is the short form of `--anchor` (repeatable, or comma-delimited). The default `--anchor-mode boost` prefers anchored nodes while still ranking the rest; `--anchor-mode filter` returns only nodes carrying the anchor, so an unanchored fact is never returned in that mode. `--format` accepts `json` (default), `concise`, or `markdown` — keep `json` whenever the output is parsed against [`../schema/recall.json`](../schema/recall.json). Matching nodes report an `anchor_score` alongside the other score components.
+
+To narrow by ontological class and drop weak matches, filter by entity type and composite score:
+
+```bash
+sekha-cluster-tool recall --query "policy" --type policy --min-score 0.70
+```
+`--type` (`-t`) restricts results to one `entity_type` (e.g. `config`, `fact`, `policy`); `--min-score` discards nodes whose composite `score` falls below the threshold. An empty result under a threshold is a miss for this query, not proof the fact is absent — relax `--min-score` before escalating.
+
 Had Tier 1 been unreachable, timed out, or returned `"nodes": []`, the next step would be **Tier 2**: read Claude harness memory at harness memory, ground on what is stored there, and tell the operator which tier supplied the values. See [`fallback-degraded.md`](fallback-degraded.md) Case E.
 
 ## Stage 3 — Deliberate (`deliberate`)
@@ -106,6 +121,15 @@ sekha-cluster-tool consolidate \
   "nodes_fused": 1,
   "edges_reinforced": 1
 }
+```
+
+Anchor the write so the episode can be scoped precisely at recall. `--anchor` (`-a`) attaches the tags to the committed entities, which is what makes `--anchor-mode filter` usable later:
+```bash
+sekha-cluster-tool consolidate \
+  --session-id "sess-01" \
+  --goal "Commit config" \
+  --anchor "#project:kestrel" \
+  --sync
 ```
 
 For a large episodic trace — extensive `sensory_context` or a long `trajectory` — write the JSON to a file and pass its path instead of an inline string:

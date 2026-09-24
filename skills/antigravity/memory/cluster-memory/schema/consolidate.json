@@ -26,13 +26,14 @@
   "properties": {
     "request": {
       "type": "object",
-      "description": "Payload dispatched to Node 1. Populated from CLI flags --goal, --outcome, --session-id, and --sync.",
+      "description": "Payload dispatched to Node 1. Populated from CLI flags --goal, --outcome, --session-id, --anchor, and --sync.",
       "properties": {
         "goal": { "type": "string", "description": "The objective or mission deliberated during the session (CLI flag --goal)." },
         "outcome": { "type": "string", "enum": ["success", "failure", "in_progress"], "description": "The final outcome status of the deliberation trajectory (CLI flag --outcome)." },
         "session_id": { "type": "string", "description": "Working memory session identifier (CLI flag --session-id)." },
         "trace": { "type": "object", "description": "Optional full deliberation trajectory payload serialised as JSON (CLI flag --trace)." },
-        "sync": { "type": "boolean", "description": "When true, blocks until graph consolidation and decay complete synchronously (CLI flag --sync)." }
+        "sync": { "type": "boolean", "description": "When true, blocks until graph consolidation and decay complete synchronously (CLI flag --sync)." },
+        "anchors": { "type": "array", "items": { "type": "string" }, "description": "Anchor tags attached to committed entities (CLI flag --anchor / -a; repeatable or comma-delimited)." }
       },
       "required": ["goal", "outcome", "session_id"]
     },
