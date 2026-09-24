@@ -130,8 +130,8 @@ Whenever instructed to **memorise (memorize)**, **store**, **remember**, or **re
 
 ### Harness Auto-Memory Resolution Rule
 Before reading or writing local harness memory, the agent must resolve the target directory using the following preference order:
-1. **Harness App Data Memory (Primary & Most Specific)**: `$APP_DATA_DIR/memory/` (as exposed by the harness configuration or environment).
-2. **Global Harness Memory Fallback**: Global user-level agent memory directory.
+1. **Harness App Data Memory (Primary & Most Specific)**: `~/.gemini/antigravity-cli/memory/` (may be exposed via `$APP_DATA_DIR/memory/` or harness configuration).
+2. **Global Gemini Memory Fallback**: `~/.gemini/memory/`.
 
 > [!IMPORTANT]
 > **Working-Directory Boundary & Preflight Check**:
