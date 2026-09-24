@@ -165,7 +165,7 @@ sekha-cluster-tool consolidate \
 
 ### Agent Behaviour
 - **Rule**: Do not invent fake graph mutation statistics (`nodes_updated`, `edges_reinforced`).
-- **Dual-Write Redundancy**: Under the **Mandatory Dual-Memory Persistence** contract, when storing project invariants or critical configurations, the summary has already been committed to Antigravity's auto-memory (`~/.gemini/`). Therefore, even though remote cluster consolidation encountered an error, the agent suffers **zero amnesia**.
+- **Dual-Write Redundancy**: Under the **Mandatory Dual-Memory Persistence** contract, when storing project invariants or critical configurations, the summary has already been committed to Antigravity's auto-memory (resolved harness directory; never the user's working directory or repository). Therefore, even though remote cluster consolidation encountered an error, the agent suffers **zero amnesia**.
 - **Action**: Report to the operator that the action succeeded and the fact was safely preserved in Antigravity's auto-memory, while the remote cluster trace failed to persist and has been queued in local logs for deferred retry once Node 1 connectivity is restored.
 
 ---
@@ -249,9 +249,9 @@ sekha-cluster-tool recall --query "Kestrel production config" --top-k 8
 
 #### Agent Behaviour
 - **Rule**: Never hallucinate unretrieved values or substitute parameters from unrelated entities.
-- **Action**: Immediately trigger **Tier 2 Antigravity Memory Fallback**. Inspect Antigravity's persistent agent memory (`~/.gemini/`). Locate the `## Kestrel Configuration` entry and extract verified configuration parameters.
+- **Action**: Immediately trigger **Tier 2 Antigravity Memory Fallback**. Inspect Antigravity's persistent agent harness memory (resolved via the Auto-Memory Resolution Rule; never the user's working directory or repository). Locate the `## Kestrel Configuration` entry and extract verified configuration parameters.
 - **Operator Report**: Transparently report the fallback:
-  > "Cluster recall on Node 1 returned no matching graph entities. Executed Tier 2 fallback to Antigravity auto-memory (`~/.gemini/`) and successfully retrieved verified parameters: `port: 9000`, `replicas: 3`."
+  > "Cluster recall on Node 1 returned no matching graph entities. Executed Tier 2 fallback to Antigravity auto-memory (resolved harness directory; never the user's working directory or repository) and successfully retrieved verified parameters: `port: 9000`, `replicas: 3`."
 
 ---
 
@@ -262,9 +262,9 @@ The user instructs the agent:
 > *"Memorise the Gannetry staging configuration: `db_host: postgres.internal`, `port: 5432`, `max_conn: 50`."*
 
 ### Agent Behaviour
-- **Rule**: Enforce mandatory dual-write redundancy. Never write exclusively to the remote cluster, and never rely solely on transient conversational context. Never create unneeded files in the working directory.
+- **Rule**: Enforce mandatory dual-write redundancy. Never write exclusively to the remote cluster, and never rely solely on transient conversational context. Never create unneeded files in the working directory or repository.
 - **Step 1 (Antigravity Auto-Memory)**:
-  Record the configuration in Antigravity's persistent memory (`~/.gemini/`):
+  Record the configuration in Antigravity's resolved harness memory directory (never the user's working directory or repository):
   ```markdown
   ## Gannetry Staging Configuration
   - db_host: postgres.internal
@@ -283,7 +283,7 @@ The user instructs the agent:
     --trace '{"session_id":"sess-memorise-gannetry","task_goal":"Store Gannetry configuration","outcome":"success","status":"completed","sensory_context":[{"id":"fact-01","text":"Gannetry config: db_host: postgres.internal; port: 5432; max_conn: 50","salience":1.0,"source":"user","timestamp":"2026-09-24T08:00:00Z"}],"trajectory":[{"step_index":0,"thought":"Committed Gannetry configuration to long-term memory","status":"completed","timestamp":"2026-09-24T08:00:00Z"}]}'
   ```
 - **Step 3 (Verification & Read-Back Contract)**:
-  1. Confirm local persistence in `~/.gemini/`.
+  1. Confirm local persistence in resolved harness memory (never the user's working directory or repository).
   2. Confirm cluster receipt: `"status": "consolidated"` and `entities_extracted > 0`.
   3. **Read-back verification (mandatory)**:
      ```bash
@@ -291,7 +291,7 @@ The user instructs the agent:
      ```
      - **Success Case**: If the node surfaces with high `sim_score`, report full dual-memory persistence to the user.
      - **Degraded Case**: If the node does not surface despite `"status": "consolidated"`, report transparently:
-       > "Configuration successfully persisted to Antigravity auto-memory (`~/.gemini/`), but read-back verification from Sekha cluster memory failed to surface the record. Full dual-redundancy is not established; local fallback remains operational."
+       > "Configuration successfully persisted to Antigravity auto-memory (resolved harness directory; never the user's working directory or repository), but read-back verification from Sekha cluster memory failed to surface the record. Full dual-redundancy is not established; local fallback remains operational."
 
 ---
 

@@ -57,7 +57,7 @@ An `orchestrate` run therefore degrades — recall and consolidation cannot serv
 ```
 
 ### Correct agent behaviour
-> The knowledge store is unreachable, so the turn ran **degraded**: recall returned no grounding and the episode could **not** be consolidated (both stages show `status` error, `dial tcp: i/o timeout` in `stages[]`). I acted on the gated signal alone — proposing to isolate the affected interface and raise a ticket — but confidence is reduced and this turn will not improve future recall. Trace `trc-degraded-77aa`. Restore Node 1 and re-run to persist the episode. (Had this turn carried a durable fact, the `~/.claude/memory/` leg of the dual-write would still have been completed — see Case D.)
+> The knowledge store is unreachable, so the turn ran **degraded**: recall returned no grounding and the episode could **not** be consolidated (both stages show `status` error, `dial tcp: i/o timeout` in `stages[]`). I acted on the gated signal alone — proposing to isolate the affected interface and raise a ticket — but confidence is reduced and this turn will not improve future recall. Trace `trc-degraded-77aa`. Restore Node 1 and re-run to persist the episode. (Had this turn carried a durable fact, the harness memory leg of the dual-write would still have been completed — see Case D.)
 
 ## Case C — Node 2 (scratchpad) unreachable, loop halts
 Deliberation is the reasoning core. If Node 2 is down, do not consolidate an incomplete episode.
@@ -66,7 +66,7 @@ Deliberation is the reasoning core. If Node 2 is down, do not consolidate an inc
 > The working scratchpad is unreachable, so deliberation could not run and there is no reasoned action to take. I have **halted** the loop and will not consolidate a partial episode. Trace `trc-halt-12cd`. Please restore Node 2 (`CLUSTER_WORKING_URL`) and re-run.
 
 ## Case D — Node 1 consolidation fails, dual-write redundancy holds
-The operator asked the agent to memorise a configuration. The `~/.claude/memory/` leg succeeded; the cluster leg did not.
+The operator asked the agent to memorise a configuration. The harness memory leg succeeded; the cluster leg did not.
 
 ```bash
 sekha-cluster-tool consolidate --session-id "sess-memorise-kestrel" --goal "Store Kestrel configuration" --sync --trace '{"session_id":"sess-memorise-kestrel","task_goal":"Store Kestrel configuration","outcome":"success","status":"completed","sensory_context":[{"id":"fact-01","text":"Kestrel config: port: 9000; replicas: 3","salience":1.0,"source":"user","timestamp":"2026-09-24T08:00:00Z"}],"trajectory":[{"step_index":0,"thought":"Committed Kestrel configuration to long-term memory","status":"completed","timestamp":"2026-09-24T08:00:00Z"}]}'
@@ -80,9 +80,9 @@ sekha-cluster-tool consolidate --session-id "sess-memorise-kestrel" --goal "Stor
 ```
 
 ### Correct agent behaviour
-> Stored the Kestrel configuration in Claude harness memory (`~/.claude/memory/`) — `port: 9000`, `replicas: 3` — so it will survive into future sessions. Cluster consolidation **failed** (`dial tcp: connection refused`, trace `trc-consolidate-fail-4b1e`), so the fact is not yet in the knowledge graph and will not enrich associative recall. I have queued the trace for retry; restore Node 1 and re-run the consolidation to complete the second leg.
+> Stored the Kestrel configuration in Claude harness memory (harness memory) — `port: 9000`, `replicas: 3` — so it will survive into future sessions. Cluster consolidation **failed** (`dial tcp: connection refused`, trace `trc-consolidate-fail-4b1e`), so the fact is not yet in the knowledge graph and will not enrich associative recall. I have queued the trace for retry; restore Node 1 and re-run the consolidation to complete the second leg.
 
-**Rules:** do not invent receipt statistics (`entities_extracted`, `nodes_fused`, `edges_reinforced`). Do not report the fact as fully persisted — name the leg that failed. Critically, do **not** treat the cluster failure as a reason to skip or undo the `~/.claude/memory/` write: that write is what prevents amnesia here.
+**Rules:** do not invent receipt statistics (`entities_extracted`, `nodes_fused`, `edges_reinforced`). Do not report the fact as fully persisted — name the leg that failed. Critically, do **not** treat the cluster failure as a reason to skip or undo the harness memory write: that write is what prevents amnesia here.
 
 ## Case E — Tier 1 recall empty, Tier 2 harness fallback answers
 A later session asks for a stored value. Cluster recall runs but the graph returns nothing.
@@ -99,16 +99,16 @@ sekha-cluster-tool recall --query "Kestrel config: port replicas" --top-k 8
 ```
 
 ### Correct agent behaviour
-> Cluster recall returned no matching nodes (`"nodes": []`), so I fell back to Claude harness memory (`~/.claude/memory/`), which holds the Kestrel entry: `port: 9000`, `replicas: 3`. These values come from harness memory, not the knowledge graph — Node 1 has no record of them, which is consistent with the consolidation failure logged earlier.
+> Cluster recall returned no matching nodes (`"nodes": []`), so I fell back to Claude harness memory (harness memory), which holds the Kestrel entry: `port: 9000`, `replicas: 3`. These values come from harness memory, not the knowledge graph — Node 1 has no record of them, which is consistent with the consolidation failure logged earlier.
 
-**Rules:** the same fallback applies when recall is unreachable, times out, reports degradation in `stages[]`, or returns only unrelated entities. Never substitute another subject's values, and never invent a value neither tier returned — if `~/.claude/memory/` has no entry either, say the fact is not stored and ask the operator to supply it.
+**Rules:** the same fallback applies when recall is unreachable, times out, reports degradation in `stages[]`, or returns only unrelated entities. Never substitute another subject's values, and never invent a value neither tier returned — if harness memory has no entry either, say the fact is not stored and ask the operator to supply it.
 
 ## Case F — Condition D walkthrough: a complete dual-write
 The end-to-end shape of a correct `memorise` turn, with both legs succeeding.
 
 **User:** *"Memorise the Gannetry staging configuration: `db_host: postgres.internal`, `port: 5432`, `max_conn: 50`."*
 
-**Leg 1 — Claude harness auto-memory.** Record the invariant under `~/.claude/memory/`, values verbatim:
+**Leg 1 — Claude harness auto-memory.** Record the invariant under harness memory, values verbatim:
 ```markdown
 ## Gannetry staging configuration
 - db_host: postgres.internal
@@ -134,9 +134,9 @@ sekha-cluster-tool consolidate --session-id "sess-memorise-gannetry" --goal "Sto
 ```
 
 ### Correct agent behaviour
-> Stored the Gannetry staging configuration in both memories: the entry is in Claude harness memory (`~/.claude/memory/`), and the episode consolidated into the knowledge graph (`status` consolidated, `entities_extracted` 4, trace `trc-5c7d91aa02bf3e44`). It will survive a session boundary and a cluster outage alike.
+> Stored the Gannetry staging configuration in both memories: the entry is in Claude harness memory (harness memory), and the episode consolidated into the knowledge graph (`status` consolidated, `entities_extracted` 4, trace `trc-5c7d91aa02bf3e44`). It will survive a session boundary and a cluster outage alike.
 
-**Rules:** neither leg is optional and neither substitutes for the other. Confirm storage only after checking both — the `~/.claude/memory/` entry **and** a receipt showing `"status": "consolidated"` with `entities_extracted > 0`. Transient scratchpad state (loop counters, draft reasoning, intermediate tool output) is written to neither store. Never create memory files in the user's working directory or repository. If the configuration had contained credentials, tell the operator they reside in plaintext in both stores.
+**Rules:** neither leg is optional and neither substitutes for the other. Confirm storage only after checking both — the harness memory entry **and** a receipt showing `"status": "consolidated"` with `entities_extracted > 0`. Transient scratchpad state (loop counters, draft reasoning, intermediate tool output) is written to neither store. Never create memory files in the user's working directory or repository. If the configuration had contained credentials, tell the operator they reside in plaintext in both stores.
 
 ## Case G — `orchestrate` consolidates a failed deliberation (no remediation available)
 Unlike Case C, this failure **cannot be halted**. It is recorded from a real run, not constructed.
@@ -179,4 +179,4 @@ The knowledge graph nevertheless grew from **12 nodes / 10 edges to 41 nodes / 3
 - Treat a placeholder `proposed_action` (`AWAIT_STABILISATION` and similar) as a failed turn, never as an action to carry out.
 - Never claim an episode can be rolled back. State the `session_id` and `trace_id` and say plainly that no remediation path exists through this CLI.
 - **Prevention is the only control.** Probe deliberation before sending a payload worth keeping, and prefer the staged path — there, Stage 4 simply is not run. See the preconditions on the `orchestrate` shortcut in `SKILL.md`.
-- A dual-write is unaffected on the harness side: the `~/.claude/memory/` leg is written by the agent and does not depend on the cluster turn succeeding.
+- A dual-write is unaffected on the harness side: the harness memory leg is written by the agent and does not depend on the cluster turn succeeding.

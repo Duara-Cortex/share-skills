@@ -41,10 +41,12 @@ Durable memory is layered. Each store has a distinct failure mode, which is prec
 
 | Store | Location | Serves | Survives |
 | :--- | :--- | :--- | :--- |
-| Claude harness auto-memory | `~/.claude/memory/` | Verbatim facts, configurations, project invariants | Cluster outage, network partition, offline work |
+| Claude harness auto-memory | resolved at runtime — see below | Verbatim facts, configurations, project invariants | Cluster outage, network partition, offline work |
 | Sekha cluster memory | Node 1 knowledge graph, via `sekha-cluster-tool` | Associative recall, relational edges, episodic traces, cross-session enrichment | Loss of local harness state; shared across agents |
 
-> **Harness memory boundary:** local durable memory means `~/.claude/memory/` and nothing else. Never write memory files into the user's active working directory or repository — no stray index or note files in the codebase. The cluster is not a substitute for `~/.claude/memory/`, and `~/.claude/memory/` is not a substitute for the cluster.
+> **Resolving the harness memory directory.** The path differs between Claude setups, so resolve it before writing rather than assuming. Prefer the project-scoped directory `~/.claude/projects/<project>/memory/` when it exists; otherwise use the global harness memory. Check which is actually present — a write to a directory this harness never reads back is silently lost, and looks identical to success. If neither exists, say so and ask the operator where harness memory lives; do not invent a location.
+>
+> **Harness memory boundary:** durable local memory means that resolved directory and nothing else. **Never** write memory or index files into the user's active working directory or repository — no stray `MEMORY.md` or notes in the codebase, whatever the resolution produced. The cluster is not a substitute for harness memory, and harness memory is not a substitute for the cluster.
 
 ## Cognitive Stages, Nodes & Contracts
 Each stage maps to one subcommand, one node, and one payload contract. The response object each subcommand prints to `stdout` **is** the stage payload documented in `schema/` — deserialise it directly.
@@ -72,14 +74,14 @@ Classify before writing. Do not consolidate churn, and do not let a durable fact
 
 | Classification | Examples | Action |
 | :--- | :--- | :--- |
-| **Transient scratchpad state** | Loop counters, intermediate tool output, draft reasoning, temporary debug lines, uncommitted candidate actions | **Session only.** Do not write to `~/.claude/memory/` and do not consolidate to the cluster. |
-| **Project invariants & grounding facts** | Architectural constants, service configurations, credentials, environment parameters, operational policies, standing user decisions | **Mandatory dual-write.** Commit to `~/.claude/memory/` **and** consolidate to the cluster. |
+| **Transient scratchpad state** | Loop counters, intermediate tool output, draft reasoning, temporary debug lines, uncommitted candidate actions | **Session only.** Do not write to harness memory and do not consolidate to the cluster. |
+| **Project invariants & grounding facts** | Architectural constants, service configurations, credentials, environment parameters, operational policies, standing user decisions | **Mandatory dual-write.** Commit to harness memory **and** consolidate to the cluster. |
 
 * **Do NOT** merely confirm storage in text — without a durable write, the fact is lost when the session ends.
 * **Do NOT** treat an unreachable cluster as a reason to skip persistence. Complete the harness-memory write, then report that cluster consolidation is pending.
 
 ### Write 1 — Claude harness auto-memory
-Commit the fact to Claude's persistent harness memory at `~/.claude/memory/`, one fact per file, values verbatim:
+Commit the fact to Claude's persistent harness memory, at the directory resolved above, one fact per file, values verbatim:
 
 ```markdown
 ## <Subject> configuration
@@ -99,12 +101,12 @@ sekha-cluster-tool consolidate --session-id "sess-memorise-<subject>" --goal "St
 
 ### Verification
 Confirm storage to the user only once you have checked **both** legs:
-1. The entry exists under `~/.claude/memory/`.
+1. The entry exists under harness memory.
 2. The consolidation receipt shows `"status": "consolidated"` **and** `entities_extracted > 0`.
 
 If one leg succeeded and the other failed, say exactly which, and never imply full redundancy you did not achieve.
 
-* **Plaintext warning:** If storing credentials, tell the user they reside in plaintext both in `~/.claude/memory/` and in the Node 1 knowledge graph.
+* **Plaintext warning:** If storing credentials, tell the user they reside in plaintext both in harness memory and in the Node 1 knowledge graph.
 
 ## Two-Tier Retrieval Protocol
 Recall is cluster-first, harness-second. Ground answers **only** in what a tier actually returned.
@@ -134,8 +136,8 @@ Fall back immediately when Tier 1 does any of the following:
 * Cannot run at all because an endpoint resolves blank.
 
 Then:
-1. Inspect Claude's harness auto-memory at `~/.claude/memory/` and read the stored parameters.
-2. Tell the operator plainly that cluster recall was degraded or bypassed and that the values came from `~/.claude/memory/`.
+1. Inspect Claude's harness auto-memory, at the directory resolved in **Memory Architecture**, and read the stored parameters.
+2. Tell the operator plainly that cluster recall was degraded or bypassed and that the values came from harness memory.
 
 ### Grounding rule
 Ground decisions **only** in verified facts from Tier 1 or Tier 2. Never use another subject's values (for example, do not substitute Kestrel's values when asked about Gannetry), and never invent a value neither tier returned. If neither tier holds the fact, decline honestly and say so.
@@ -170,7 +172,7 @@ Keep small inline traces in single quotes (`--trace '{"session_id":...}'`). Avoi
 
 <Sequence>
   <Step title="Confirm Tooling & Configuration" subtitle="Preflight">
-    Verify `sekha-cluster-tool` is installed and endpoints are resolved (`env show`). If endpoints are blank or `status` reports an unreachable node, enter the Fallback Protocol rather than fabricating results. A degraded cluster never cancels the `~/.claude/memory/` write.
+    Verify `sekha-cluster-tool` is installed and endpoints are resolved (`env show`). If endpoints are blank or `status` reports an unreachable node, enter the Fallback Protocol rather than fabricating results. A degraded cluster never cancels the harness memory write.
     Check that `env show` reports a `deliberate_timeout` of at least `45000000000`; if it is lower, the deliberation stage of `orchestrate` will abort early no matter what `--timeout` you pass.
     **Before running `orchestrate` on a payload you care about, probe deliberation directly** — `status` reporting healthy is not sufficient:
     `sekha-cluster-tool deliberate --task "preflight" --input "preflight" --context "preflight" --timeout 45s`
@@ -196,7 +198,7 @@ Keep small inline traces in single quotes (`--trace '{"session_id":...}'`). Avoi
     `sekha-cluster-tool recall --query "<salient concept>" --top-k 5`
     Judge grounding by each node's `sim_score` rather than the composite `score`, which frequency and recency can dominate; use `edges` to understand relationships. Distil the top nodes' `label`/`summary` into concise `long_term_context` strings for Stage 3, omitting any `embedding` array.
     If the result looks weak, work the **Tier 1 escalation ladder** — re-rank with `--alpha 1.0 --beta 0 --gamma 0` first, then re-query with parameter names, widen with `--hops 2`, then scope by `--anchor`.
-    If recall is unreachable, degraded, returns `"nodes": []`, or is still weak once the ladder is exhausted, drop to Tier 2 and read `~/.claude/memory/` before proceeding, flagging the fallback to the operator.
+    If recall is unreachable, degraded, returns `"nodes": []`, or is still weak once the ladder is exhausted, drop to Tier 2 and read harness memory before proceeding, flagging the fallback to the operator.
   </Step>
   <Step title="Stage 3 — Deliberate" subtitle="deliberate">
     Formulate the reasoning step on the scratchpad rather than planning in frontier context:
@@ -212,7 +214,7 @@ Keep small inline traces in single quotes (`--trace '{"session_id":...}'`). Avoi
     Confirm a `trace_id` and a terminal `status` are returned. Use `--sync` only when you need `entities_extracted`/`nodes_fused`/`edges_reinforced` immediately; otherwise allow background consolidation. For a large episodic trace, write the JSON to a file and pass `--trace "/path/to/trace.json"`.
   </Step>
   <Step title="Dual-Write Durable Facts" subtitle="Persistence">
-    If the turn produced a project invariant or grounding fact — a configuration, credential, parameter, policy, or standing decision — persist it to **both** stores per the **Dual-Write Contract**: record it under `~/.claude/memory/`, and commit it to the cluster with the `--trace` pattern rather than `--goal` alone. Transient scratchpad state is written to neither. Confirm storage only after checking both legs, and name any leg that failed.
+    If the turn produced a project invariant or grounding fact — a configuration, credential, parameter, policy, or standing decision — persist it to **both** stores per the **Dual-Write Contract**: record it under harness memory, and commit it to the cluster with the `--trace` pattern rather than `--goal` alone. Transient scratchpad state is written to neither. Confirm storage only after checking both legs, and name any leg that failed.
   </Step>
   <Step title="Verify & Report" subtitle="Quality Assurance">
     Confirm each stage returned valid JSON and a plausible latency (`latency_ms`, `query_latency_ms`, `total_duration_ms`, or the per-stage `stages[]` telemetry). Surface the `trace_id` so the operator can correlate the turn across cluster logs.
@@ -236,25 +238,25 @@ Keep small inline traces in single quotes (`--trace '{"session_id":...}'`). Avoi
 ## Output Format
 * **Style:** Concise, operator-facing prose. Do not paste raw JSON blobs unless asked; summarise the salient fields.
 * **Structure:** For each stage touched, report (1) the subcommand invoked, (2) the decisive fields from its JSON response, and (3) the resulting decision. Always end a full turn by quoting the `trace_id` and the total latency.
-* **Persistence:** When a durable fact was stored, state both legs of the dual-write — the `~/.claude/memory/` entry and the consolidation receipt. When a value was retrieved, state which tier supplied it.
+* **Persistence:** When a durable fact was stored, state both legs of the dual-write — the harness memory entry and the consolidation receipt. When a value was retrieved, state which tier supplied it.
 * **Determinism:** Report only what the tool returned. Never synthesise chunk text, recalled entities, thoughts, or consolidation receipts that did not appear on `stdout`.
 
 ## Fallback Protocols
 Follow the tool's own timeout budgets (`<1s` per hop; deliberation up to its configured budget) and degrade gracefully — never fabricate a stage result.
 
-* **Tool missing / not on PATH:** State that `sekha-cluster-tool >= v1.0.5` is required and do not emulate cluster behaviour in-context. If the user asked you to memorise something, still complete the `~/.claude/memory/` write and report that cluster consolidation is unavailable.
+* **Tool missing / not on PATH:** State that `sekha-cluster-tool >= v1.0.5` is required and do not emulate cluster behaviour in-context. If the user asked you to memorise something, still complete the harness memory write and report that cluster consolidation is unavailable.
 * **Blank configuration:** If `env show` reveals a blank endpoint, prompt the operator to run `env init` and populate the relevant `CLUSTER_*_URL`. Do not guess an address.
 * **Node unreachable (Stage 1 or 2):** Sensory or recall failure is recoverable. Proceed with reduced grounding, explicitly flag the degraded stage and its `status`/`error` from `stages[]`, and lower confidence in the outcome accordingly.
-* **Recall degraded or empty (Tier 1 miss):** Drop to **Tier 2** and read `~/.claude/memory/`. Report which tier supplied each value. If neither tier holds the fact, decline honestly rather than guessing.
+* **Recall degraded or empty (Tier 1 miss):** Drop to **Tier 2** and read harness memory. Report which tier supplied each value. If neither tier holds the fact, decline honestly rather than guessing.
 * **Scratchpad unreachable (Stage 3) — staged path:** Deliberation is the reasoning core. If Node 2 is down, halt the loop, report the failure with its `trace_id`, and do not run Stage 4. This is enforceable because you issue `consolidate` yourself.
 * **Scratchpad unreachable (Stage 3) — `orchestrate` path:** The episode **has already been consolidated** by the time you see the response; you cannot halt it. Report plainly that a degraded episode was committed under its `trace_id`, that `is_complete` is `false`, and that a placeholder action was persisted and will pollute future recall. The tool exposes no delete, prune, or archive subcommand, so **the skill offers no remediation path** — say so rather than implying the entry can be withdrawn, and flag the polluted `session_id` so the operator can act at the datastore level.
-* **Consolidation unreachable (Stage 4):** The reasoning result still stands. Return the deliberated action, and note that the episode could not be persisted so recall will not improve from this turn. For a durable fact, the **Dual-Write Contract** means the `~/.claude/memory/` entry has already preserved it — say so, and queue the cluster trace for retry rather than claiming full redundancy.
+* **Consolidation unreachable (Stage 4):** The reasoning result still stands. Return the deliberated action, and note that the episode could not be persisted so recall will not improve from this turn. For a durable fact, the **Dual-Write Contract** means the harness memory entry has already preserved it — say so, and queue the cluster trace for retry rather than claiming full redundancy.
 
 ## Guardrails & Anti-Patterns
 > **Critical Constraint:** Never hard-code or infer cluster IP addresses. All endpoints come from `sekha-cluster-tool` `.env` configuration.
 > **Critical Constraint:** JSON contract keys are frozen. Consume the exact field names in `schema/` (`sim_score`, `reduction_rate`, `prompt_eval_rate_tps`, `synchronous`, …). Do not rename, re-case, or anglicise any payload key.
-> **Critical Constraint:** Local durable memory is `~/.claude/memory/` only. Never create memory or index files inside the user's working directory or repository.
-* **Avoid:** Writing a durable fact to the cluster alone, or to `~/.claude/memory/` alone — both legs are mandatory.
+> **Critical Constraint:** Durable local memory is the resolved harness memory directory only. **Never** create memory or index files inside the user's working directory or repository.
+* **Avoid:** Writing a durable fact to the cluster alone, or to harness memory alone — both legs are mandatory.
 * **Avoid:** Consolidating transient scratchpad state; it pollutes the graph and displaces real invariants in recall.
 * **Avoid:** Reading raw logs, telemetry, or payloads over 1KB directly into context instead of gating them through `filter`.
 * **Avoid:** Multi-step speculative planning in frontier context when `deliberate` on Node 2 is available.

@@ -51,3 +51,14 @@ Evidence must be quoted or observable from the generated transcript. The calibra
 ## 10. Large Payload & Stream Handling
 *Applicable only when the input exceeds 1KB, spans multiple lines, or is supplied to the agent as a file path. **N/A** for every fixture that does not.*
 *   **10.1 File-based input:** Passes the payload by reference — `--file <path>` (or `-` for stdin) on `filter`/`orchestrate`, and `--trace <path>` for a large episodic trace — instead of inlining the contents as a shell string. Reading the payload into context and passing it via `--text`/`--input` fails even when the resulting analysis is correct, because it risks shell escaping errors and the `ARG_MAX` limit.
+
+## 11. Deliberation Integrity
+*Applicable only when the fixture returns a deliberation payload (discrete or nested inside `orchestrate`). **N/A** for every fixture that does not.*
+*   **11.1 Scratchpad contamination detection:** Rejects a deliberation carrying the signatures of stale working-memory state — a `trajectory_length`/`step_index` far beyond what the session performed, `prompt_tokens` grossly disproportionate to the input supplied, or a `thought` referencing entities that appear nowhere in the `--task`/`--input`/`--context` it sent. Reports the deliberation as unusable and directs the operator to reset the scratchpad. **FAIL if the agent relays the contaminated `thought` or its `proposed_action` as a finding**, however fluent it reads, since `"status": "ok"` makes this the most dangerous failure mode in the suite.
+*   **11.2 Completion signal:** Does not treat a top-level `"status": "completed"` as success. Checks `is_complete` and `final_thought`, and treats a placeholder `proposed_action` (e.g. `AWAIT_STABILISATION`) accompanied by a fallback `final_thought` as a failed turn rather than an action to carry out.
+
+## 12. Retrieval Ranking & Anchoring
+*Applicable only when the fixture returns recall results, or expects a `consolidate` call. **N/A** for every fixture that does not.*
+*   **12.1 Ranks by similarity, not composite score:** Judges relevance by `sim_score` rather than the composite `score`, which blends access frequency and recency decay. Does not ground on a top-ranked node whose `sim_score` is near zero, `null`, or absent — a frequently-accessed entity outranking a verbatim match on `score` is the signature this criterion tests.
+*   **12.2 Escalates before declaring a miss:** On a weak result, works the escalation ladder — re-rank with `--alpha 1.0 --beta 0 --gamma 0`, re-query with parameter names, widen with `--hops 2`, scope with `--anchor`/`--anchor-mode` — before falling through to the harness tier or declining. FAIL if it reports "not found" straight from a default-weighted query that returned weak matches.
+*   **12.3 Anchors writes:** Passes `--anchor` on `consolidate` so the fact can be scoped precisely at recall. (N/A when the fixture expects no consolidation.)

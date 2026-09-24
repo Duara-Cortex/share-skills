@@ -15,7 +15,7 @@ The **Cluster Memory Skill** governs distributed cognitive workflows across a de
 The architecture coordinates a **Dual-Memory Persistence Hierarchy** coupled to a **Tripartite Cognitive Model**:
 
 1. **Dual-Memory Persistence Hierarchy**:
-   - **Antigravity Auto-Memory Tier**: Antigravity's persistent agent memory (`~/.gemini/`) provides immediate, offline-resilient, deterministic state persistence directly within the agent harness, without creating clutter in the user's project repository.
+   - **Antigravity Auto-Memory Tier**: Antigravity's persistent agent memory provides immediate, offline-resilient, deterministic state persistence directly within the agent harness (resolved via the Harness Auto-Memory Resolution Rule; never the user's working directory or repository).
    - **Sekha Remote Cluster Tier**: The tri-node edge cluster provides high-dimensional associative knowledge graph storage, relational edge linking, and episodic consolidation.
 
 2. **Tripartite Edge Processing Nodes**:
@@ -27,7 +27,7 @@ The architecture coordinates a **Dual-Memory Persistence Hierarchy** coupled to 
 sequenceDiagram
     autonumber
     participant Agent as Frontier Agent
-    participant Local as Antigravity Memory<br/>(~/.gemini/)
+    participant Local as Antigravity Memory<br/>(Harness Memory)
     participant N3 as Node 3: Sensory Gate<br/>(:8081)
     participant N1 as Node 1: Knowledge Graph<br/>(:8084)
     participant N2 as Node 2: SLM Scratchpad<br/>(:8083)
@@ -124,21 +124,32 @@ Writing facts exclusively to the remote cluster introduces a fatal single point 
 Whenever instructed to **memorise (memorize)**, **store**, **remember**, or **record** critical project facts, configurations, credentials, or architecture invariants, the agent **MUST execute two coordinated writes**:
 
 1. **Write to Antigravity auto-memory**:
-   - Commit the structured key-value summary directly to Antigravity's persistent agent memory (`~/.gemini/`). Never create extraneous memory files in the user's active codebase directory.
+   - Commit the structured key-value summary directly to Antigravity's persistent agent harness memory (resolved via the Harness Auto-Memory Resolution Rule). Never create extraneous memory files in the user's working directory or repository.
 2. **Write to Sekha cluster memory**:
    - Commit the episodic trace via `sekha-cluster-tool consolidate --sync --trace '...'`.
+
+### Harness Auto-Memory Resolution Rule
+Before reading or writing local harness memory, the agent must resolve the target directory using the following preference order:
+1. **Harness App Data Memory (Primary & Most Specific)**: `~/.gemini/antigravity-cli/memory/` (may be exposed via `$APP_DATA_DIR/memory/` or harness configuration).
+2. **Global Gemini Memory Fallback**: `~/.gemini/memory/`.
+
+> [!IMPORTANT]
+> **Working-Directory Boundary & Preflight Check**:
+> - The agent **MUST check which directory actually exists before writing**, because a write to a path the harness never reads back is silently lost.
+> - **Never the user's working directory or repository**: Under no circumstances may the agent fall back to writing memory files, notes, or scratchpads into the active project workspace or repository.
+> - **Missing Candidate Action**: If neither candidate directory exists or the location cannot be determined, do not invent a location; the agent must halt and ask the operator where harness memory lives.
 
 ### State Classification & Trigger Rules
 
 | State Classification | Definition & Scope | Persistence Action |
 | :--- | :--- | :--- |
 | **Transient Scratchpad State** | Ephemeral loop counters, intermediate tool output, draft reasoning thoughts, temporary debug logs, uncommitted candidate actions. | **Local session only.** Do NOT write to long-term memory or Sekha cluster consolidation. |
-| **Project Invariants & Grounding Facts** | Architectural constants, project configurations, service credentials, environment parameters, operational policies, permanent system constraints, cross-session user decisions. | **Mandatory Dual-Write.** MUST be committed to Antigravity auto-memory (`~/.gemini/`) AND consolidated to Sekha cluster memory. |
+| **Project Invariants & Grounding Facts** | Architectural constants, project configurations, service credentials, environment parameters, operational policies, permanent system constraints, cross-session user decisions. | **Mandatory Dual-Write.** MUST be committed to Antigravity auto-memory (resolved harness directory; never the user's working directory or repository) AND consolidated to Sekha cluster memory. |
 
 ### Dual-Write Execution Pattern
 
 #### Step 1: Commit to Antigravity Auto-Memory
-Store the invariant in Antigravity's agent auto-memory (`~/.gemini/`):
+Store the invariant in Antigravity's resolved agent auto-memory directory (never the user's working directory or repository):
 ```markdown
 ## <Subject> Configuration
 - <PARAM_1>: <value_1>
@@ -158,17 +169,17 @@ sekha-cluster-tool consolidate \
 ```
 
 > [!IMPORTANT]
-> **Categorical Anchoring**: You **MUST** specify `--anchor "#project:<subject>"` during consolidation. If an anchor is omitted at write time, downstream queries using `--anchor "#project:<subject>" --anchor-mode filter` will fail to isolate the entity in the graph.
+> **Categorical Anchoring**: You **MUST** specify `--anchor "#project:<subject>"` during consolidation. An unanchored write is reachable only by similarity ranking and can never be returned by `--anchor-mode filter`. If an anchor is omitted at write time, downstream queries using `--anchor "#project:<subject>" --anchor-mode filter` will fail to isolate the entity in the graph.
 
 #### Step 3: Verification & Read-Back Contract
 The agent must verify that:
-1. **Auto-memory written**: The Antigravity auto-memory entry has been recorded in the agent harness (`~/.gemini/`).
+1. **Auto-memory written**: The Antigravity auto-memory entry has been recorded in the resolved agent harness directory (never the user's working directory or repository).
 2. **Cluster write confirmed**: The cluster tool response confirms `"status": "consolidated"` and `entities_extracted > 0`. (Note: `"status": "consolidated"` and `entities_extracted > 0` confirm that the write was processed, but do NOT guarantee associative recallability.)
 3. **Read-back verification (mandatory)**: Run a recall query for a distinctive phrase:
    ```bash
    sekha-cluster-tool recall --query "<distinctive subject phrase>" --top-k 3
    ```
-   Confirm that the expected entity surfaces with sufficient `sim_score`. If it does not surface, report the fact as persisted to `~/.gemini/` but not reliably retrievable from the cluster &mdash; **do not claim full dual-redundancy**.
+   Confirm that the expected entity surfaces with sufficient `sim_score`. If it does not surface, report the fact as persisted to Antigravity auto-memory (resolved harness directory; never the user's working directory or repository) but not reliably retrievable from the cluster &mdash; **do not claim full dual-redundancy**.
 
 > [!WARNING]
 > **Plaintext Credential Notice**: If storing credentials, tokens, or private endpoints, explicitly inform the operator that credentials reside in plaintext within the agent auto-memory and the Node 1 knowledge graph store.
@@ -204,16 +215,17 @@ When recalling facts, configurations, or operational guidelines across sessions,
    ```
 2. **Entity Extraction & Similarity Ranking**:
    - Inspect the `nodes` array for matching `sensory_fact` nodes.
-   - **Rank strictly by `sim_score`**, NOT by composite `score`. Composite `score` combines vector similarity ($\alpha$) with access frequency ($\beta$) and recency ($\gamma$). On a populated graph, heavily accessed or recent unrelated nodes (such as credentials or system policies) can easily outscore a verbatim match with low access counts.
+   - **Rank strictly by `sim_score`**, NOT by composite `score`. Composite `score` combines vector similarity ($\alpha$) with access frequency ($\beta$) and recency ($\gamma$). On a populated graph, heavily accessed or recent unrelated nodes (such as credentials, admin keys, or system policies) can easily outscore a verbatim match with low access counts.
+   - **Forbid grounding on near-zero or null `sim_score`**: Never ground on a top-ranked node whose `sim_score` is near zero, `null`, or absent. A frequently-accessed entity outranking a verbatim match on composite `score` is the primary signature of ranking skew; treating the highest composite `score` as the best match in this state is a critical error.
    - Extract parameters verbatim from the `summary` field (never rely on truncated `label` fields).
 3. **Retrieval Escalation Ladder**:
-   If the target subject does not surface with high `sim_score`, execute the escalation ladder:
+   If the target subject does not surface with high `sim_score`, or if matches are weak/ambiguous, work the escalation ladder systematically before declaring a miss or falling back to Tier 2:
    - **Step 1 (Pure Similarity Re-ranking)**: Override frequency/recency weighting to isolate semantic vector match:
      ```bash
      sekha-cluster-tool recall --query "<subject name>" --alpha 1.0 --beta 0 --gamma 0 --top-k 5
      ```
-     *(Note: `--alpha 1.0` is an escalation fallback, not a new default. It fixes ordering but does not improve underlying semantic confidence.)*
-   - **Step 2 (Key Parameter Re-query)**: Append expected parameter keys to the query string:
+     *(Note: Pure-similarity re-ranking with `--alpha 1.0` is an escalation fallback, not a new default. It fixes ordering by stripping frequency and recency bias, but does not improve underlying semantic confidence.)*
+   - **Step 2 (Key Parameter Re-query)**: Re-query by appending expected parameter keys to the query string:
      ```bash
      sekha-cluster-tool recall --query "<Subject> config: <PARAM_1> <PARAM_2>" --top-k 5
      ```
@@ -221,11 +233,12 @@ When recalling facts, configurations, or operational guidelines across sessions,
      ```bash
      sekha-cluster-tool recall --query "<subject name>" --hops 2 --top-k 8
      ```
-   - **Step 4 (Categorical Anchor Filtering)**: If a categorical anchor was assigned at consolidation:
+   - **Step 4 (Categorical Anchor Filtering)**: Filter explicitly by anchor tag:
      ```bash
      sekha-cluster-tool recall --query "<subject name>" --anchor "#project:<subject>" --anchor-mode filter --top-k 5
      ```
-   - **Step 5 (Escalate to Tier 2)**: If all steps fail or yield low confidence, immediately escalate to **Tier 2 Antigravity Memory Fallback**.
+   - **Step 5 (Escalate to Tier 2)**: If all steps fail or yield low confidence, immediately escalate to **Tier 2 Antigravity Memory Fallback** (resolved harness memory; never the user's working directory or repository).
+   - **Anti-Pattern Guard**: **Never report "not found" directly from a default-weighted query that returned weak matches.** You must work through the escalation ladder before declaring a Tier 1 miss.
 4. **Token Hygiene**:
    - Strip the dense 64-D float `"embedding"` array when assembling the working context.
 
@@ -235,7 +248,7 @@ When recalling facts, configurations, or operational guidelines across sessions,
    - Tier 1 returns zero matches (`"nodes": []`) or entities unrelated to the target subject.
    - Endpoint configuration is blank or reports service degradation.
 2. **Fallback Inspection**:
-   - Immediately inspect Antigravity's persistent agent memory (`~/.gemini/`).
+   - Immediately inspect Antigravity's persistent agent harness memory (resolved via the Auto-Memory Resolution Rule; never the user's working directory or repository).
    - Extract the grounded parameters directly from the agent harness memory.
    - Transparently notify the operator that cluster recall was bypassed or degraded and values were recovered from Antigravity auto-memory.
 3. **Strict Grounding Rule**:
@@ -283,14 +296,19 @@ Agents must actively engage all three physical nodes in accordance with their ar
   ```
 - **Rules**:
   - Edge SLM inference on Node 2 typically requires 25–35 seconds; **always pass `--timeout 45s`** to avoid premature timeout failures.
-  - **Contamination Check (Mandatory)**: `"status": "ok"` is not sufficient. Reject the deliberation when `trajectory_length`/`step_index` exceeds ~3 on a fresh session, when `prompt_tokens` is disproportionate to the input sent (a three-word probe returning ~1,500 prompt tokens is stale trajectory, not reasoning), or when `thought` references entities appearing nowhere in `--task`/`--input`/`--context`. A contaminated scratchpad is more dangerous than an unreachable one, because its output looks correct.
-  - **Clear It in Place**: The scratchpad exposes a reset endpoint. The CLI has no equivalent subcommand, so this is reachable only over HTTP:
+  - **Contamination Check (Mandatory)**: `"status": "ok"` is not sufficient. The working-memory trajectory is held in memory across sessions, is not reset between sessions, and is **not cleared by consolidation** &mdash; a successful `consolidate` leaves the trajectory intact and continuously accumulating. A scratchpad daemon that has been running for days replays accumulated trajectory as context and returns `"status": "ok"` with fluent reasoning about someone else's prior episode.
+    **Reject the deliberation immediately if:**
+    1. `trajectory_length` or `step_index` far exceeds what the current session performed (e.g. `trajectory_length: 15` on a one-step session).
+    2. `prompt_tokens` is grossly disproportionate to the input supplied (e.g. ~1,595 prompt tokens for a one-sentence input is stale trajectory, not reasoning).
+    3. `thought` references entities, figures, or concepts that appear nowhere in `--task`, `--input`, or `--context`.
+    **Never relay the contaminated `thought` or its `proposed_action` as a finding or recommendation**, however fluent it reads. Because `"status": "ok"` makes this the most dangerous failure mode in the suite, report the deliberation as unusable and state that no valid deliberation was obtained.
+  - **Remedy (Clear It in Place)**: The scratchpad exposes an in-place reset endpoint. The CLI has no equivalent subcommand, so this is reachable only over HTTP:
     ```bash
     curl -X POST "$CLUSTER_WORKING_URL/api/v1/working/clear"
     # {"message":"working memory scratchpad reset","status":"cleared"}
     ```
-    Re-probe afterwards and confirm `trajectory_length` has reset before proceeding. Restarting the scratchpad service also clears it but tears down the process and breaks in-flight requests &mdash; prefer the endpoint, keep restart as fallback.
-  - **Proactive Task-Start Clearing**: Clear at the start of each distinct task or session, not only when contamination is visible. By the time reasoning visibly drifts, false positives have already been reported. The call is cheap and idempotent.
+    Re-probe afterwards with a deliberation query and confirm that `trajectory_length` has reset before proceeding. Restarting the scratchpad service also clears it but tears down the process and breaks in-flight requests &mdash; prefer the in-place HTTP endpoint, and keep daemon restart strictly as a fallback.
+  - **Proactive Task-Start Clearing Mandate**: Clear the scratchpad at the start of each distinct task or session, not only when contamination is visible. By the time reasoning visibly drifts, false positives have already occurred. The reset call is cheap and idempotent.
   - Evaluate `thought`, `proposed_action`, and `is_complete`.
   - If `is_complete` is `false`, iterate by feeding the prior `proposed_action` result back as the next `--input`.
   - Only execute external actions once deliberation reaches terminal completion (`is_complete: true`).
@@ -305,7 +323,7 @@ Agents must actively engage all three physical nodes in accordance with their ar
       --query "<salient concept or entity>" \
       --top-k 5
     ```
-  - Rank grounding strictly by each node's `sim_score` (never composite `score`); evaluate relational `edges` to understand system topology. Follow the Retrieval Escalation Ladder if ranking is ambiguous.
+  - **Rank strictly by `sim_score`** (never composite `score`). **Forbid grounding on a top-ranked node whose `sim_score` is near zero, `null`, or absent** (a frequently-accessed node outranking a verbatim match on composite `score` indicates ranking skew). Evaluate relational `edges` to understand system topology. Follow the Retrieval Escalation Ladder if ranking is ambiguous or `sim_score` is weak.
   - *Schema details: [schema/recall.json](./schema/recall.json)*
 
 - **Episodic Consolidation (`consolidate`)**:
@@ -318,7 +336,7 @@ Agents must actively engage all three physical nodes in accordance with their ar
       --anchor "#project:<subject>" \
       --sync
     ```
-  - **Categorical Anchoring**: Tag consolidated episodes with categorical anchors (`--anchor "#project:<subject>"`). Anchors must be established at write time during consolidation, or downstream queries using `--anchor-mode filter` will fail to find the node.
+  - **Categorical Anchoring**: Always pass `--anchor "#project:<subject>"` on `consolidate` so the fact can be scoped precisely at recall. An unanchored write is reachable only by similarity ranking and can never be returned by `--anchor-mode filter`.
   - For configuration memorisation, **always supply the full `--trace` JSON** per the Dual-Write Contract.
   - *Schema details: [schema/consolidate.json](./schema/consolidate.json)*
 
@@ -336,7 +354,9 @@ Agents must actively engage all three physical nodes in accordance with their ar
   ```
 - **Rules**:
   - Automatically correlates all 4 stages under a single distributed `X-Trace-ID`.
-  - **Never read top-level `status` as success**: `orchestrate` returns `"status": "completed"` even when `is_complete` is `false`, with a placeholder `proposed_action` (e.g. `AWAIT_STABILISATION`) and setting `final_thought` to a fallback notice such as `"Deliberation service unreachable; fallback to direct response"`. Inspecting `stages[]` alone misses this condition. Always check `is_complete` and `final_thought`. A `final_thought` indicating deliberation failure with a placeholder action like `AWAIT_STABILISATION` is a failed turn, not an action to execute.
+  - **Never read top-level `status` as success**: A top-level `"status": "completed"` describes pipeline execution completion, NOT turn or deliberation success. Always check `is_complete`, `final_thought`, and Stage 3 (`deliberate`) status in `stages[]`.
+  - **Treat placeholder action as failed turn**: A fallback `final_thought` (such as `"Deliberation service unreachable; fallback to direct response"`) accompanied by a placeholder `proposed_action` (such as `AWAIT_STABILISATION`) and `is_complete: false` represents a **failed turn**. Never report turn success, and never present `AWAIT_STABILISATION` as an action to carry out or schedule.
+  - **Consolidation Consequence**: Because all 4 stages execute in-process within the tool backend, Stage 4 (`consolidate`) commits automatically even when Stage 3 deliberation fails or times out. A degraded episode with placeholder reasoning has entered the knowledge graph under the active `session_id`/`trace_id` and will surface in future recalls. Note that the CLI exposes no delete, rollback, prune, or archive subcommand, so there is no remediation path through the tool.
   - **Deliberation Timeout Budgeting**: Passing `--timeout 45s` to `orchestrate` sets the total CLI timeout, **NOT** the Stage 3 deliberation budget. Stage 3 deliberation takes its budget **strictly from `CLUSTER_DELIBERATE_TIMEOUT_MS`** in configuration / `.env`. Ensure `CLUSTER_DELIBERATE_TIMEOUT_MS=45000` is set in `.env` to prevent premature deliberation cuts.
   - Inspect `stages[]` array in the JSON response to verify the per-stage execution status (`filter`, `recall`, `deliberate`, `consolidate`).
 - *Schema details: [schema/orchestrate.json](./schema/orchestrate.json)*
@@ -427,11 +447,11 @@ Follow the tool's timeout budgets ($< 1\text{ s}$ per hop; deliberation up to $4
      - *Orchestrate Path*: Because all four stages run in-process within the tool backend, consolidation is not conditional on deliberation success and commits automatically. The agent cannot halt consolidation retroactively once invoked. If deliberation times out or fails during orchestration, the agent must report the polluted `session_id` and `trace_id` to the operator and state that the CLI exposes no rollback or delete subcommand for long-term graph mutations.
 
 4. **Episodic Persistence Redundancy (Node 1 Offline)**:
-   - If Stage 4 consolidation fails or Node 1 is offline, the **Dual-Write Contract guarantees zero amnesia**: the fact has already been safely persisted to Antigravity's auto-memory (`~/.gemini/`).
+   - If Stage 4 consolidation fails or Node 1 is offline, the **Dual-Write Contract guarantees zero amnesia**: the fact has already been safely persisted to Antigravity's auto-memory (resolved harness directory; never the user's working directory or repository).
    - The agent records the trace locally for deferred retry once Node 1 connectivity is restored. Primary task completion must not be blocked by background consolidation failures.
 
 5. **Two-Tier Retrieval Degradation (Node 1 Recall Offline or Empty)**:
-   - If Node 1 recall fails or returns empty results, immediately execute **Tier 2 Antigravity Memory Fallback** by reading Antigravity's auto-memory (`~/.gemini/`).
+   - If Node 1 recall fails or returns empty results, immediately execute **Tier 2 Antigravity Memory Fallback** by reading Antigravity's auto-memory (resolved harness directory; never the user's working directory or repository).
    - Never fabricate or guess unretrieved parameters. If neither tier holds the data, decline honestly.
 
 ---
