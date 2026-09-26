@@ -2,7 +2,7 @@
 
 A declarative skill that lets an AI agent externalise memory and reasoning onto the **Sekha Tri-Node Edge Cognitive Cluster**, instead of holding an entire noisy stream and every recalled fact in its context window.
 
-The skill does not talk to the nodes directly. It drives the compiled **[`sekha-cluster-tool`](https://github.com/Duara-Cortex/sekha-cluster-tool)** CLI (`>= v1.0.5`), which coordinates the cluster deterministically. A compiled binary keeps behaviour stable and prevents runtime drift across harnesses.
+The skill does not talk to the nodes directly. It drives the compiled **[`sekha-cluster-tool`](https://github.com/Duara-Cortex/sekha-cluster-tool)** CLI (`>= v1.0.9`), which coordinates the cluster deterministically. A compiled binary keeps behaviour stable and prevents runtime drift across harnesses.
 
 > This is the **claude** variant. An antigravity variant lives alongside it under `skills/antigravity/memory/cluster-memory/`.
 
@@ -45,7 +45,7 @@ Skip it when the task is self-contained and needs no external memory.
 
 ## Prerequisites
 
-1. **`sekha-cluster-tool >= v1.0.5`** on `PATH`. Verify with `sekha-cluster-tool --version`. The `v1.0.5` floor is what supports the file-based input forms (`filter --file`, `orchestrate --file`, `consolidate --trace <path>`) the skill uses for large payloads.
+1. **`sekha-cluster-tool >= v1.0.9`** on `PATH`. Verify with `sekha-cluster-tool --version`. The `v1.0.9` floor is required for stateless deliberation (every `deliberate` call is an independent session; multi-step reasoning is caller-owned), and also covers the file-based input forms (`filter --file`, `orchestrate --file`, `consolidate --trace <path>`) the skill uses for large payloads.
 2. **Configured endpoints.** All node addresses default to blank and must be supplied — there are no baked-in IPs.
 
 ## Configuration

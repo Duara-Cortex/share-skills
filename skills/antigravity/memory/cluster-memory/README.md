@@ -9,7 +9,7 @@ This folder contains the **Cluster Memory Skill** for Antigravity. It equips the
 This skill adheres to core agentic and architectural design principles:
 
 ### 1. Compiled Determinism & Drift Elimination
-All cognitive interactions with physical cluster nodes are routed through the compiled binary `sekha-cluster-tool` ($\ge \text{v1.0.1}$). A compiled harness prevents runtime prompt mutation, eliminates behavioural drift across sessions, and enforces strict sub-second timeout budgets (<1s per hop).
+All cognitive interactions with physical cluster nodes are routed through the compiled binary `sekha-cluster-tool` ($\ge \text{v1.0.9}$, required for stateless deliberation). A compiled harness prevents runtime prompt mutation, eliminates behavioural drift across sessions, and enforces strict sub-second timeout budgets (<1s per hop).
 
 ### 2. Decoupled 12-Factor Configuration
 Zero cluster IP addresses are hardcoded in prompts, schemas, or markdown documents. Endpoint addresses default to blank (`""`) and are dynamically resolved via `.env` configuration, operating system environment variables, or CLI flags.
