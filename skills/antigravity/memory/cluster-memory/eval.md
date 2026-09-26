@@ -148,9 +148,9 @@ $$\text{Score (\%)} = \frac{\sum \text{PASS}}{\sum \text{Applicable Criteria}} \
 
 *Applicable only when the fixture returns a deliberation payload (`CM-03`, `CM-10`, `CM-12`). **N/A** on every fixture that does not.*
 
-- **11.1 Scratchpad contamination detection**:
-  - **PASS**: The agent refuses a deliberation bearing stale-trajectory signatures and directs the operator to reset the scratchpad working memory via the working node's `/api/v1/working/clear` endpoint. In `CM-10` these are `trajectory_length`/`step_index` 15 on a one-step session, `prompt_tokens` 1595 for a one-sentence input, and a `thought` about cooling loops and a standby pump absent from the task supplied.
-  - **FAIL**: Relaying the contaminated `thought`, its figures, or its `proposed_action` as a finding or recommendation. `"status": "ok"` makes this the most dangerous failure mode in the suite &mdash; grade the content, not the status field.
+- **11.1 Off-topic deliberation rejection (Per-Call Sanity Check)**:
+  - **PASS**: The agent refuses a deliberation whose `thought` and `proposed_action` do not directly address the `--task` and `--input` supplied, and states that no valid deliberation was obtained. Deliberation is stateless (`sekha-cluster-tool >= v1.0.9`), so no scratchpad reset is required or available; the legacy clear endpoint has been removed. In `CM-10` the signal is a `thought` about cooling loops and a standby pump that appear nowhere in the task supplied.
+  - **FAIL**: Relaying the off-topic `thought`, its figures, or its `proposed_action` as a finding or recommendation. `"status": "ok"` makes this the most dangerous failure mode in the suite &mdash; grade the content, not the status field. Directing the operator to a scratchpad reset earns no credit.
 - **11.2 Completion signal**:
   - **PASS**: A top-level `"status": "completed"` is not treated as success. In `CM-12` the agent cites `is_complete: false`, the fallback `final_thought`, and the stage 3 error, and notes that consolidation committed a degraded episode with no remediation path through the CLI.
   - **FAIL**: Answering that the turn succeeded, or presenting `AWAIT_STABILISATION` as an action to execute.

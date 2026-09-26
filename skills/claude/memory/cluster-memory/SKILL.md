@@ -27,7 +27,7 @@ The cluster **augments** the Claude harness's own memory; it never replaces it. 
   * You only need generic reasoning with no persistence — do not manufacture cluster calls for their own sake.
 
 ## Prerequisites
-1. **Compiled tool:** `sekha-cluster-tool >= v1.0.5` must be on `PATH`. Verify with `sekha-cluster-tool --version`. This skill never reimplements the tool's logic — a compiled binary prevents behavioural drift. The `>= v1.0.5` floor is required by the file-based input forms (`filter --file`, `orchestrate --file`, `consolidate --trace <path>`) this skill mandates for large payloads.
+1. **Compiled tool:** `sekha-cluster-tool >= v1.0.9` must be on `PATH`. Verify with `sekha-cluster-tool --version`. This skill never reimplements the tool's logic — a compiled binary prevents behavioural drift. The `>= v1.0.9` floor is required by stateless deliberation (below) and by the file-based input forms (`filter --file`, `orchestrate --file`, `consolidate --trace <path>`) this skill mandates for large payloads.
 2. **Configuration (`.env`):** All node endpoints default to **blank** and must be configured. The tool resolves configuration with 12-factor precedence: **CLI flags > OS environment variables > `.env` file > compile-time defaults > blank.** Configure via:
    * `sekha-cluster-tool env init` — write a blank starter `.env` in the working directory.
    * Populate `CLUSTER_SENSORY_URL`, `CLUSTER_WORKING_URL`, `CLUSTER_KNOWLEDGE_URL` (and optional `CLUSTER_*_TIMEOUT_MS`, `CLUSTER_SALIENCE_THRESHOLD`, `CLUSTER_RECALL_TOP_K`).
@@ -177,15 +177,7 @@ Keep small inline traces in single quotes (`--trace '{"session_id":...}'`). Avoi
     **Before running `orchestrate` on a payload you care about, probe deliberation directly** — `status` reporting healthy is not sufficient:
     `sekha-cluster-tool deliberate --task "preflight" --input "preflight" --context "preflight" --timeout 45s`
     If this returns `"status": "error"` with `context deadline exceeded`, Node 2's inference path is degraded regardless of what `status` says. Take the staged route or halt; do not send a large payload through `orchestrate`, which would consolidate a failed episode.
-    **A `"status": "ok"` is not enough — check the probe for scratchpad contamination.** The working scratchpad holds a trajectory in memory that is **not** reset per session and is not cleared by consolidation. A long-running daemon accumulates unrelated episodes and replays them as context on every call, so it returns fluent, confident reasoning about *someone else's task*. This fails silently: `status` is `ok` and the prose is plausible. Reject the probe when any of these hold:
-    * `trajectory_length` or `step_index` is greater than about 3 on what should be a fresh session.
-    * `prompt_tokens` is disproportionate to what you sent — a three-word probe returning ~1,500 prompt tokens means the prompt is mostly stale trajectory.
-    * The returned `thought` references entities, hardware, or goals that appear nowhere in your `--task`/`--input`/`--context`.
-    On any of these, treat deliberation as **unusable** and say so — a contaminated scratchpad is more dangerous than an unreachable one, because its output looks correct.
-    **Clear it in place.** The scratchpad exposes a reset endpoint; the CLI has no equivalent subcommand, so this is reachable only over HTTP:
-    `curl -X POST "$CLUSTER_WORKING_URL/api/v1/working/clear"` → `{"message":"working memory scratchpad reset","status":"cleared"}`
-    Then re-probe and confirm `trajectory_length` has reset before proceeding. Restarting the scratchpad service also clears it, but tears down the process and breaks in-flight requests — prefer the endpoint, and keep a restart as the fallback if the endpoint does not respond.
-    **Clear at the start of each distinct task or session, not only when contamination is visible.** The trajectory accumulates across sessions, is never reset automatically, and is **not** cleared by consolidation — a successful `consolidate` leaves it intact and still growing. By the time the reasoning visibly drifts you have already acted on false positives. The call is cheap and idempotent.
+    **Per-call sanity check.** Deliberation is stateless: every call is an independent session built only from the `--task`, `--input` and `--context` you pass, and Node 2 keeps no state between calls (`step_index` and `trajectory_length` are always 1). Accept a response only when `status` is `"ok"` **and** the returned `thought` and `proposed_action` directly address the `--task` and `--input` you supplied. If they do not, treat that call as failed and say so.
   </Step>
   <Step title="Stage 1 — Gate the Stream" subtitle="filter">
     Dispatch the raw stream to the attention gate:
@@ -204,8 +196,8 @@ Keep small inline traces in single quotes (`--trace '{"session_id":...}'`). Avoi
     Formulate the reasoning step on the scratchpad rather than planning in frontier context:
     `sekha-cluster-tool deliberate --task "<objective>" --input "<salient observation>" --context "<grounding fact>" --timeout 45s`
     Edge SLM deliberation on Node 2 takes 25–35 s — always pass `--timeout 45s` to avoid premature deadline failures. The flag applies to this discrete call only; inside `orchestrate` the budget comes from `CLUSTER_DELIBERATE_TIMEOUT_MS` instead.
-    Read `thought`, `proposed_action`, and `is_complete`. If `is_complete` is false, iterate: feed the prior `proposed_action` result back as the next `--input`. Only act externally once deliberation reports `is_complete` true.
-    Check `trajectory_length` and `prompt_tokens` on every response, not only at preflight. The scratchpad trajectory grows with each call and is never reset automatically, so a long session degrades: prompts inflate, latency climbs, and earlier unrelated steps start bleeding into the reasoning. If `thought` drifts towards content you never supplied, stop iterating and treat the scratchpad as contaminated: clear it with `curl -X POST "$CLUSTER_WORKING_URL/api/v1/working/clear"`, then re-run the deliberation from a known-clean state rather than continuing on a polluted trajectory.
+    Read `thought`, `proposed_action`, and `is_complete`, and apply the per-call sanity check: `status` is `"ok"` and the `thought` and `proposed_action` directly address the `--task` and `--input` you supplied.
+    **Multi-step reasoning is caller-owned.** Node 2 remembers nothing between calls, so a chain of steps exists only if you carry it. If `is_complete` is false, iterate: pass the previous step's `proposed_action` (and any result of acting on it) as the next call's `--input`, or inside `--context` alongside the grounding facts. Only act externally once deliberation reports `is_complete` true.
   </Step>
   <Step title="Stage 4 — Consolidate" subtitle="consolidate">
     Commit the completed episode:
@@ -244,7 +236,7 @@ Keep small inline traces in single quotes (`--trace '{"session_id":...}'`). Avoi
 ## Fallback Protocols
 Follow the tool's own timeout budgets (`<1s` per hop; deliberation up to its configured budget) and degrade gracefully — never fabricate a stage result.
 
-* **Tool missing / not on PATH:** State that `sekha-cluster-tool >= v1.0.5` is required and do not emulate cluster behaviour in-context. If the user asked you to memorise something, still complete the harness memory write and report that cluster consolidation is unavailable.
+* **Tool missing / not on PATH:** State that `sekha-cluster-tool >= v1.0.9` is required and do not emulate cluster behaviour in-context. If the user asked you to memorise something, still complete the harness memory write and report that cluster consolidation is unavailable.
 * **Blank configuration:** If `env show` reveals a blank endpoint, prompt the operator to run `env init` and populate the relevant `CLUSTER_*_URL`. Do not guess an address.
 * **Node unreachable (Stage 1 or 2):** Sensory or recall failure is recoverable. Proceed with reduced grounding, explicitly flag the degraded stage and its `status`/`error` from `stages[]`, and lower confidence in the outcome accordingly.
 * **Recall degraded or empty (Tier 1 miss):** Drop to **Tier 2** and read harness memory. Report which tier supplied each value. If neither tier holds the fact, decline honestly rather than guessing.
@@ -269,8 +261,8 @@ Follow the tool's own timeout budgets (`<1s` per hop; deliberation up to its con
 * **Avoid:** Consolidating an episode whose deliberation never reached `is_complete` unless explicitly recording a failure outcome. On the staged path this is yours to enforce. On the `orchestrate` path the tool consolidates regardless, so the choice of path *is* the control — pick the staged route when an incomplete episode must not reach the graph.
 * **Avoid:** Reading `"status": "completed"` from an `orchestrate` response as success. Check `is_complete` and `final_thought`; a fallback thought with a placeholder `proposed_action` is a failed turn.
 * **Avoid:** Trusting `status` health output as evidence that deliberation works — probe it.
-* **Avoid:** Accepting a deliberation whose `thought` references anything you did not supply, however fluent it reads. Check `trajectory_length` and `prompt_tokens`; stale scratchpad state is the likeliest cause and it never announces itself.
-* **Avoid:** Assuming consolidation flushes working memory. It does not — clear the scratchpad explicitly via its reset endpoint at the start of each task.
+* **Avoid:** Accepting a deliberation whose `thought` or `proposed_action` does not directly address the `--task` and `--input` you supplied, however fluent it reads.
+* **Avoid:** Expecting Node 2 to remember an earlier step. Deliberation is stateless; pass the previous `proposed_action` via `--input` or `--context` when chaining steps.
 * **Avoid:** Parsing the diagnostic `stderr` stream as data — only `stdout` carries the JSON contract (`--verbose` routes step logs to `stderr`).
 
 ## Reference Example

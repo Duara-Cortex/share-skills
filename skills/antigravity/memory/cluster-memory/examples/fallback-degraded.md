@@ -60,7 +60,7 @@ sekha-cluster-tool filter \
 
 ---
 
-## 3. Scenario C: Node 2 Working Memory Scratchpad Timeout & Contamination
+## 3. Scenario C: Node 2 Working Memory Scratchpad Timeout & Off-Topic Output
 
 ### Trigger 1: Context Deadline Exceeded
 Node 2 (16GB RAM, `:8083`) exceeds its deliberation timeout budget due to heavy local SLM inference load:
@@ -78,7 +78,7 @@ sekha-cluster-tool deliberate \
 {
   "status": "error",
   "error": "context deadline exceeded while awaiting deliberation response from :8083",
-  "step_index": 0,
+  "step_index": 1,
   "thought": "",
   "is_complete": false
 }
@@ -91,8 +91,8 @@ sekha-cluster-tool deliberate \
 
 ---
 
-### Trigger 2: Deliberation Contamination (Stale Scratchpad Daemon State)
-A scratchpad daemon that has been running for days retains accumulated trajectory in memory. A fresh task is submitted, and the daemon returns `"status": "ok"`, but the output belongs to an earlier, unrelated episode:
+### Trigger 2: Off-Topic Deliberation (Per-Call Sanity Check Fails)
+Deliberation is stateless (`sekha-cluster-tool >= v1.0.9`): each call is an independent session built only from its `--task`, `--input` and `--context`, so there is no accumulated state to clear. The local SLM can still return `"status": "ok"` with fluent reasoning that does not address the request:
 
 ```bash
 sekha-cluster-tool deliberate \
@@ -102,41 +102,30 @@ sekha-cluster-tool deliberate \
   --timeout 45s
 ```
 
-#### Emitted Output (Contaminated)
+#### Emitted Output (Off-Topic)
 ```json
 {
   "status": "ok",
-  "step_index": 12,
+  "step_index": 1,
   "thought": "Secondary cooling loop coolant pressure dropped below 40 PSI. Switching valve B to redundant pump.",
   "proposed_action": "activate_coolant_pump(pump_id='pump-02')",
   "is_complete": true,
-  "prompt_tokens": 1642,
+  "prompt_tokens": 214,
   "completion_tokens": 38,
-  "total_tokens": 1680,
-  "trajectory_length": 13,
-  "timestamp": "2026-09-24T09:15:00Z"
+  "total_tokens": 252,
+  "trajectory_length": 1,
+  "timestamp": "2026-09-27T09:15:00Z"
 }
 ```
 
-#### Agent Behaviour (Contamination Detection)
-- **Detection**:
-  1. `trajectory_length` is 13 and `step_index` is 12 on a fresh session (expected $\le 3$).
-  2. `prompt_tokens` is 1642 for a concise probe (indicates massive accumulated trajectory context, not fresh reasoning).
-  3. `thought` discusses cooling loops and coolant pumps, which appear nowhere in the aeroponics salinity `--task`, `--input`, or `--context`.
+#### Agent Behaviour (Per-Call Sanity Check)
+- **Detection**: `status` is `"ok"`, but the `thought` and `proposed_action` discuss cooling loops and coolant pumps, which appear nowhere in the aeroponics salinity `--task`, `--input`, or `--context`. The call fails the Per-Call Sanity Check.
 - **Action**:
-  - **Reject the deliberation immediately**. Do not execute `activate_coolant_pump`.
-  - **Clear it in place via HTTP**: The scratchpad exposes an in-place reset endpoint (reachable over HTTP since the CLI has no equivalent subcommand):
-    ```bash
-    curl -X POST "$CLUSTER_WORKING_URL/api/v1/working/clear"
-    # {"message":"working memory scratchpad reset","status":"cleared"}
-    ```
-    *(Prefer clearing via the HTTP endpoint over restarting the service to avoid tearing down the process or aborting in-flight requests. Keep service restart as fallback if the endpoint is unreachable.)*
-  - **Re-probe to confirm reset**:
-    ```bash
-    sekha-cluster-tool deliberate --task "probe" --input "ping" --timeout 45s
-    ```
-    Confirm `trajectory_length` has reset to 1 and `step_index` is 0 before proceeding.
-  - **Proactive Task-Start Clearing**: Enforce clearing at the start of each distinct task or session, rather than waiting for reasoning drift to manifest visibly. The call is cheap and idempotent.
+  - **Reject the deliberation**. Do not execute `activate_coolant_pump`, and do not relay the `thought` or `proposed_action` as a finding or recommendation.
+  - State plainly that no valid deliberation was obtained for this task.
+  - **No reset is needed or available.** Node 2 keeps no state between calls, and the legacy clear endpoint has been removed.
+  - **Staged path**: halt before `sekha-cluster-tool consolidate`, so the failed step never reaches the knowledge graph.
+  - **Chained reasoning**: continuity is caller-owned. Only an accepted step's `proposed_action` may be carried forward as the next `--input` or inside `--context`; a rejected step is never carried forward.
 
 ---
 

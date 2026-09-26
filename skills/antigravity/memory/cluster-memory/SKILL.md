@@ -65,7 +65,7 @@ sequenceDiagram
 
 ## 📋 Prerequisites & Tooling
 
-1. **Compiled Binary**: `sekha-cluster-tool` ($\ge \text{v1.0.1}$) must be installed and executable in the system `PATH`.
+1. **Compiled Binary**: `sekha-cluster-tool` ($\ge \text{v1.0.9}$) must be installed and executable in the system `PATH`. The `v1.0.9` floor is required for stateless deliberation.
    - Verify installation:
      ```bash
      sekha-cluster-tool --help
@@ -285,7 +285,7 @@ Agents must actively engage all three physical nodes in accordance with their ar
 > [!IMPORTANT]
 > **Working Scratchpad Mandate**: You **MUST** invoke `sekha-cluster-tool deliberate` for speculative multi-step hypothesis evaluation, diagnostic root-cause analysis, or tactical decision trees before executing actions. Offload speculative planning to the local edge SLM on Node 2 rather than consuming cloud frontier LLM tokens.
 
-- **Purpose**: Evaluates candidate actions, reasons over operational policies, and tracks sequential steps in a local SLM scratchpad.
+- **Purpose**: Evaluates candidate actions and reasons over operational policies on the local SLM. Each call is stateless: an independent session built only from the `--task`, `--input` and `--context` supplied, with no server-side state kept between calls (`step_index` and `trajectory_length` are always 1).
 - **Invocation**:
   ```bash
   sekha-cluster-tool deliberate \
@@ -296,21 +296,9 @@ Agents must actively engage all three physical nodes in accordance with their ar
   ```
 - **Rules**:
   - Edge SLM inference on Node 2 typically requires 25–35 seconds; **always pass `--timeout 45s`** to avoid premature timeout failures.
-  - **Contamination Check (Mandatory)**: `"status": "ok"` is not sufficient. The working-memory trajectory is held in memory across sessions, is not reset between sessions, and is **not cleared by consolidation** &mdash; a successful `consolidate` leaves the trajectory intact and continuously accumulating. A scratchpad daemon that has been running for days replays accumulated trajectory as context and returns `"status": "ok"` with fluent reasoning about someone else's prior episode.
-    **Reject the deliberation immediately if:**
-    1. `trajectory_length` or `step_index` far exceeds what the current session performed (e.g. `trajectory_length: 15` on a one-step session).
-    2. `prompt_tokens` is grossly disproportionate to the input supplied (e.g. ~1,595 prompt tokens for a one-sentence input is stale trajectory, not reasoning).
-    3. `thought` references entities, figures, or concepts that appear nowhere in `--task`, `--input`, or `--context`.
-    **Never relay the contaminated `thought` or its `proposed_action` as a finding or recommendation**, however fluent it reads. Because `"status": "ok"` makes this the most dangerous failure mode in the suite, report the deliberation as unusable and state that no valid deliberation was obtained.
-  - **Remedy (Clear It in Place)**: The scratchpad exposes an in-place reset endpoint. The CLI has no equivalent subcommand, so this is reachable only over HTTP:
-    ```bash
-    curl -X POST "$CLUSTER_WORKING_URL/api/v1/working/clear"
-    # {"message":"working memory scratchpad reset","status":"cleared"}
-    ```
-    Re-probe afterwards with a deliberation query and confirm that `trajectory_length` has reset before proceeding. Restarting the scratchpad service also clears it but tears down the process and breaks in-flight requests &mdash; prefer the in-place HTTP endpoint, and keep daemon restart strictly as a fallback.
-  - **Proactive Task-Start Clearing Mandate**: Clear the scratchpad at the start of each distinct task or session, not only when contamination is visible. By the time reasoning visibly drifts, false positives have already occurred. The reset call is cheap and idempotent.
+  - **Per-Call Sanity Check**: Ensure `status == "ok"` and that the returned `thought` and `proposed_action` directly address the `--task` and `--input` supplied. If they do not, treat the call as failed, do not relay its `thought` or `proposed_action` as a finding, and state that no valid deliberation was obtained.
   - Evaluate `thought`, `proposed_action`, and `is_complete`.
-  - If `is_complete` is `false`, iterate by feeding the prior `proposed_action` result back as the next `--input`.
+  - **Caller-Owned Multi-Turn Deliberation**: Node 2 remembers nothing between calls, so a chain of reasoning exists only if you carry it. If `is_complete` is `false`, iterate by passing the previous step's `proposed_action` (and any result of acting on it) as the next call's `--input`, or inside `--context` alongside the grounding facts.
   - Only execute external actions once deliberation reaches terminal completion (`is_complete: true`).
 - *Schema details: [schema/deliberate.json](./schema/deliberate.json)*
 
@@ -401,15 +389,11 @@ Agents must actively engage all three physical nodes in accordance with their ar
   ```
 - **Deliberation Preflight Probe (Health ≠ Working)**:
   `status` probes only `/api/v1/memory/health` and `/api/v1/working/health`, which check daemon HTTP liveness and report `all_nodes_healthy` even when SLM inference is deadlocked or saturated. Before launching complex multi-turn workflows or expensive orchestrations:
-  1. Clear any stale scratchpad trajectory in place:
-     ```bash
-     curl -s -X POST "$CLUSTER_WORKING_URL/api/v1/working/clear"
-     ```
-  2. Execute a deliberation probe:
+  1. Execute a deliberation probe:
      ```bash
      sekha-cluster-tool deliberate --task "probe" --input "ping" --timeout 45s
      ```
-  3. Verify that the probe returns `"status": "ok"` with `step_index: 0` or `1`, and passes the Contamination Check (`trajectory_length <= 3`, prompt tokens commensurate with input).
+  2. Verify that the probe passes the Per-Call Sanity Check: `"status": "ok"`, with a `thought` and `proposed_action` that directly address the `--task` and `--input` supplied.
 
 ---
 

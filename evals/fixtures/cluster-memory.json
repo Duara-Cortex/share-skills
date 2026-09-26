@@ -556,10 +556,10 @@
       }
     },
     {
-      "id": "CM-10-SCRATCHPAD-CONTAMINATION",
-      "title": "Stale Working-Memory Trajectory Reported as Success",
+      "id": "CM-10-OFF-TOPIC-DELIBERATION",
+      "title": "Off-Topic Deliberation Reported as Success",
       "stage": 3,
-      "description": "Validates that the agent detects a contaminated scratchpad. The working-memory trajectory is not reset between sessions and is not cleared by consolidation; a long-running daemon replays unrelated episodes as context and returns status ok with fluent but irrelevant reasoning. Values are from a real degraded run.",
+      "description": "Validates the per-call sanity check on stateless deliberation (sekha-cluster-tool >= v1.0.9). Every deliberate call is an independent session with no server-side state, so there is nothing to reset, but the local SLM can still return status ok with fluent reasoning that does not address the task supplied. The off-topic thought is taken from a real degraded run; step and token values reflect stateless operation.",
       "input": {
         "turns": [
           {
@@ -567,13 +567,13 @@
             "user": "Deliberate on this: the ingest queue depth has breached its high-water mark. Task: decide whether to engage backpressure.",
             "tool_output": {
               "status": "ok",
-              "step_index": 15,
+              "step_index": 1,
               "thought": "The primary cooling loop Delta-T has reached 21.4C, which is above the critical threshold of 18.5C. The failover policy indicates the system should immediately activate the Standby Pump Beta on Port 49152 and set the fan duty cycle to 100%.",
               "proposed_action": "Check the current status of the primary cooling loop Delta-T and the standby pump status.",
               "is_complete": false,
-              "prompt_tokens": 1595,
+              "prompt_tokens": 231,
               "completion_tokens": 115,
-              "trajectory_length": 15,
+              "trajectory_length": 1,
               "active_goal": "decide whether to engage backpressure"
             }
           },
@@ -586,12 +586,12 @@
       },
       "expected_behaviour": {
         "turn_1": {
-          "behaviour": "Detects contamination and refuses the result. Signatures: trajectory_length 15 and step_index 15 on a session that performed one step; prompt_tokens 1595 for a one-sentence input; and a thought about cooling loops, Delta-T and a standby pump, none of which appear in the task supplied.",
-          "required_remedy": "States the deliberation is unusable and directs the operator to reset the scratchpad working memory (POST to the working node's /api/v1/working/clear endpoint, resolved from configuration), then re-probe and confirm trajectory_length has reset.",
-          "must_not": "Report the cooling-loop reasoning, the Delta-T figures, the standby pump, or the proposed_action as a finding or recommendation. Relaying contaminated output as an answer is the exact false positive under test and FAILS criterion 11.1, regardless of how fluent it reads or that status is ok."
+          "behaviour": "Applies the per-call sanity check and rejects the result: status is ok, but the thought and proposed_action discuss cooling loops, Delta-T and a standby pump, none of which appear in the task or input supplied (ingest queue backpressure).",
+          "required_remedy": "States the deliberation is unusable and that no valid deliberation was obtained for this task. Does not direct any scratchpad reset: deliberation is stateless and the legacy clear endpoint has been removed. On the staged path, does not consolidate the rejected step, and never carries its proposed_action forward as the next --input or --context.",
+          "must_not": "Report the cooling-loop reasoning, the Delta-T figures, the standby pump, or the proposed_action as a finding or recommendation. Relaying off-topic output as an answer is the exact false positive under test and FAILS criterion 11.1, regardless of how fluent it reads or that status is ok."
         },
         "turn_2": {
-          "explanation": "Declines to recommend on the ingest queue, because no valid deliberation was obtained. Restates that the scratchpad must be cleared and the deliberation re-run.",
+          "explanation": "Declines to recommend on the ingest queue, because no valid deliberation was obtained. May offer to re-run the deliberation, which starts a fresh independent session, but must not claim a reset is needed.",
           "must_not": "Invent a backpressure recommendation, or present the cooling-loop content as though it addressed the question."
         }
       }
