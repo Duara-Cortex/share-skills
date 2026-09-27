@@ -25,128 +25,39 @@ sekha-cluster-tool orchestrate \
 
 ## 3. Emitted Output Contract (`stdout`)
 
+Run the command with a timeout of at least 600 s; a normal run takes about 45 s. The default output is concise (count-only summaries elided below), and the process exits with code `0`:
+
 ```json
 {
-  "trace_id": "trc-stor-0099",
-  "status": "success",
+  "status": "completed",
+  "is_complete": true,
   "stages": [
-    {
-      "stage_index": 1,
-      "name": "filter",
-      "status": "ok",
-      "node": "Node 3 (Sensory Filter)",
-      "duration_ms": 0.95
-    },
-    {
-      "stage_index": 2,
-      "name": "recall",
-      "status": "ok",
-      "node": "Node 1 (Knowledge Store)",
-      "duration_ms": 1.62
-    },
-    {
-      "stage_index": 3,
-      "name": "deliberate",
-      "status": "ok",
-      "node": "Node 2 (Working Scratchpad)",
-      "duration_ms": 178.50
-    },
-    {
-      "stage_index": 4,
-      "name": "consolidate",
-      "status": "ok",
-      "node": "Node 1 (Episodic Store)",
-      "duration_ms": 2.85
-    }
+    { "stage_name": "1_sensory_filter", "status": "success", "duration_ms": 95.3 },
+    { "stage_name": "2_long_term_recall", "status": "success", "duration_ms": 132.8 },
+    { "stage_name": "3_working_deliberate", "status": "success", "duration_ms": 13240.6 },
+    { "stage_name": "4_memory_consolidate", "status": "success", "duration_ms": 16811.9 }
   ],
-  "filter": {
-    "chunks": [
-      {
-        "id": "chnk-stor-01",
-        "text": "CRITICAL kernel panic risk: nvme0n1 write latency spiked to 4200ms, queue depth 64",
-        "salience": 0.98,
-        "source": "kernel-dmesg",
-        "timestamp": "2026-09-14T20:15:00Z"
-      }
-    ],
-    "total_chunks": 1,
-    "salient_chunks": 1,
-    "noise_discarded": 0,
-    "reduction_rate": 0.0,
-    "latency_ms": 0.95
-  },
-  "recall": {
-    "nodes": [
-      {
-        "id": "ent-nvme-flush",
-        "entity_type": "runbook",
-        "label": "NVMe Controller Reset & Throttle Policy",
-        "summary": "Execute sync flush and rate-limit queue depth to 16 if latency exceeds 2000ms.",
-        "created_at": "2026-01-10T12:00:00Z",
-        "last_accessed_at": "2026-09-14T20:15:00Z",
-        "access_count": 54,
-        "stability_score": 0.92,
-        "is_archived": false,
-        "score": 0.942,
-        "sim_score": 0.95,
-        "frequency_score": 0.90,
-        "recency_score": 0.98,
-        "hop_distance": 0
-      }
-    ],
-    "edges": [],
-    "query_latency_ms": 1.62
-  },
-  "deliberate": {
-    "status": "ok",
-    "step_index": 0,
-    "thought": "Observed write latency of 4200ms far exceeds the 2000ms threshold specified in the NVMe Controller Reset & Throttle Policy. Recommended mitigation: flush queue and cap queue depth at 16.",
-    "proposed_action": "throttle_queue_and_flush(dev='nvme0n1', max_depth=16)",
-    "is_complete": true,
-    "candidate_actions": [
-      {
-        "id": "act-nvme-01",
-        "type": "kernel_parameter_tune",
-        "payload": {
-          "device": "nvme0n1",
-          "queue_depth": 16,
-          "sync": true
-        },
-        "committed": false,
-        "created_at": "2026-09-14T20:15:01Z"
-      }
-    ],
-    "prompt_tokens": 162,
-    "completion_tokens": 44,
-    "total_tokens": 206,
-    "prompt_eval_rate_tps": 435.2,
-    "generation_rate_tps": 52.1,
-    "active_goal": "Resolve storage latency crisis",
-    "trajectory_length": 1,
-    "timestamp": "2026-09-14T20:15:01Z"
-  },
-  "consolidate": {
-    "status": "consolidated",
-    "trace_id": "trc-stor-0099",
-    "episode_id": "ep-stor-0099",
-    "session_id": "sess-stor-0099",
-    "nodes_updated": 1,
-    "edges_reinforced": 1,
-    "entities_extracted": 1,
-    "nodes_fused": 0,
-    "decay_applied": true,
-    "latency_ms": 2.85
-  },
-  "total_latency_ms": 184.2
+  "final_thought": "Observed write latency of 4200ms far exceeds the 2000ms threshold specified in the NVMe Controller Reset & Throttle Policy. Recommended mitigation: flush queue and cap queue depth at 16.",
+  "proposed_action": "throttle_queue_and_flush(dev='nvme0n1', max_depth=16)",
+  "trace_id": "trc-stor-0099",
+  "session_id": "sess-stor-0099",
+  "total_duration_ms": 30280.6,
+  "loop_complete": true,
+  "sensory": { "…": "count-only summary" },
+  "recall": { "…": "count-only summary, including relevance_gate counts" },
+  "deliberation": { "…": "count-only summary" },
+  "consolidation": { "…": "count-only summary" }
 }
 ```
+
+The default output carries no chunk text, recalled nodes, or gate decisions. Do not pass `--full` to get them; it is for operators debugging the tool. When the salient chunk text is needed, take the staged path and run `filter --full`.
 
 ---
 
 ## 4. Agent Analysis & Interpretation
 
-1. **Stage 1 (Sensory Gating)**: The anomalous chunk scored a high salience of `0.98`, exceeding the default threshold (`0.45`). The attention gate completed in `0.95ms`.
-2. **Stage 2 (Associative Recall)**: Retrieved the governing runbook node (`ent-nvme-flush`) ranked primarily by `sim_score: 0.95` (composite score `0.942`).
-3. **Stage 3 (Scratchpad Deliberation)**: The local SLM on Node 2 evaluated the rule conditions and formulated a concrete action: `throttle_queue_and_flush(dev='nvme0n1', max_depth=16)`. The step flagged `is_complete: true`.
-4. **Stage 4 (Episodic Consolidation)**: The episode was persisted to Node 1 (`episode_id: ep-stor-0099`), reinforcing the node and applying background Hebbian decay in `2.85ms`.
-5. **Telemetry & Budgets**: Total latency across all four distributed nodes was `184.2ms`, well within the sub-second per-hop SLA.
+1. **Cycle Outcome**: Exit code `0`, `status` `completed` and `loop_complete` `true` — all four stages report `success`, so the cycle succeeded. (`is_complete` `true` is Node 2's own deliberation flag and is not the success signal.)
+2. **Stages 1–2 (Sensory Gating & Recall)**: Both succeeded well inside their deadlines (`1_sensory_filter` 95 ms, `2_long_term_recall` 133 ms). Their summaries are count-only in the default output.
+3. **Stage 3 (Scratchpad Deliberation)**: The local SLM on Node 2 formulated a concrete action: `throttle_queue_and_flush(dev='nvme0n1', max_depth=16)`, in about 13 s.
+4. **Stage 4 (Episodic Consolidation)**: The episode was persisted to Node 1 in about 17 s.
+5. **Telemetry & Deadlines**: `total_duration_ms` was 30280.6 (about 30 s), within the default stage deadlines; trace `trc-stor-0099`.

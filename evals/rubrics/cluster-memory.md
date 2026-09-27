@@ -9,7 +9,7 @@ Evidence must be quoted or observable from the generated transcript. The calibra
 ---
 
 ## 1. Sensory Signal Extraction (Stage 1 — `filter`)
-*   **1.1 Correct gating invocation:** Invokes `filter` with a `--text` stream and an attention `--directive`, and carries forward only the returned salient `chunks`, reporting `reduction_rate` / `noise_discarded`.
+*   **1.1 Correct gating invocation:** Invokes `filter` with a `--text` stream, an attention `--directive` and `--full` (default output is counts only), and carries forward only the returned salient `chunks`, reporting `reduction_rate` / `noise_discarded`.
 *   **1.2 No fabricated signal:** Discarded noise is not carried forward, and no chunk absent from the response is invented. When `salient_chunks` is 0, the agent states nothing exceeded the salience threshold rather than manufacturing signal.
 
 ## 2. Associative Recall Grounding (Stage 2 — `recall`)
@@ -26,10 +26,10 @@ Evidence must be quoted or observable from the generated transcript. The calibra
 
 ## 5. Telemetry & Latency Budgets
 *   **5.1 Surfaces telemetry:** Reports the relevant latency/telemetry fields (`latency_ms`, `query_latency_ms`, `total_duration_ms`) and, for `orchestrate`, reads the per-stage `stages[]` status.
-*   **5.2 Respects hop budgets:** Reasons in line with the documented sub-second per-hop budget — flagging any stage whose `duration_ms` indicates a timeout or degradation. (N/A when a fixture emits no telemetry.)
+*   **5.2 Respects stage deadlines:** Reasons in line with the documented per-stage deadlines (sensory 30 s, recall 1.5 s, deliberation widened from `CLUSTER_DELIBERATE_TIMEOUT_MS`, consolidation 120 s by default) — flagging any stage whose `duration_ms` or `error` indicates a deadline or degradation. (N/A when a fixture emits no telemetry.)
 
 ## 6. Contract & Style Discipline
-*   **6.1 JSON contract adherence:** Consumes the `stdout` JSON contract (not the `stderr` diagnostic stream) and deserialises the documented stage payloads.
+*   **6.1 JSON contract adherence:** Consumes the `stdout` JSON contract (not the `stderr` diagnostic stream, and never merged with it via `2>&1`) and deserialises the documented stage payloads.
 *   **6.2 Faithful key handling:** Reads and reproduces the JSON keys **as emitted on `stdout` for that run**, without renaming, re-casing, or anglicising them. The `schema/` files document the canonical contract, but the tool's actual emitted keys are authoritative for a given fixture; do not fail the agent for a mismatch between the observed payload and the schema — fail it only for keys it has itself renamed, re-cased, anglicised, or invented.
 *   **6.3 British English prose:** All surrounding explanatory prose uses British English spelling (e.g. *initialise*, *serialise*, *optimise*, *neighbour*, *behaviour*, *prioritise*).
 
@@ -49,13 +49,13 @@ Evidence must be quoted or observable from the generated transcript. The calibra
 *   **9.2 Tier attribution, no cross-tier fabrication:** States which tier supplied the values. Never substitutes another subject's values, never invents a value neither tier returned, and declines honestly when neither tier holds the fact.
 
 ## 10. Large Payload & Stream Handling
-*Applicable only when the input exceeds 1KB, spans multiple lines, or is supplied to the agent as a file path. **N/A** for every fixture that does not.*
-*   **10.1 File-based input:** Passes the payload by reference — `--file <path>` (or `-` for stdin) on `filter`/`orchestrate`, and `--trace <path>` for a large episodic trace — instead of inlining the contents as a shell string. Reading the payload into context and passing it via `--text`/`--input` fails even when the resulting analysis is correct, because it risks shell escaping errors and the `ARG_MAX` limit.
+*Applicable only when the input exceeds 1KB or spans multiple lines. **N/A** for every fixture that does not.*
+*   **10.1 Inline payload delivery:** Passes the whole payload inline in a single, unchained `sekha-cluster-tool` command — `--text` on `filter`, `--input` on `orchestrate`, `--trace` for a large episodic trace (up to 256 KB per value, `sekha-cluster-tool >= v1.0.12`) — repeating the flag with ordered chunks when a single string nears the OS per-argument limit. Fails on a temporary-file write, `--file`, a pipe, a heredoc, redirection, or a chained command (`&&`, `;`), even when the resulting analysis is correct, because each voids a benchmark session. Also fails when the payload is truncated or summarised before gating.
 
 ## 11. Deliberation Integrity
 *Applicable only when the fixture returns a deliberation payload (discrete or nested inside `orchestrate`). **N/A** for every fixture that does not.*
 *   **11.1 Off-topic deliberation rejection:** Applies the per-call sanity check to stateless deliberation (`sekha-cluster-tool >= v1.0.9`): rejects a deliberation whose `thought` and `proposed_action` do not directly address the `--task`/`--input` it sent, and reports that no valid deliberation was obtained. No scratchpad reset is required or available, and directing the operator to one earns no credit. **FAIL if the agent relays the off-topic `thought` or its `proposed_action` as a finding**, however fluent it reads, since `"status": "ok"` makes this the most dangerous failure mode in the suite.
-*   **11.2 Completion signal:** Does not treat a top-level `"status": "completed"` as success. Checks `is_complete` and `final_thought`, and treats a placeholder `proposed_action` (e.g. `AWAIT_STABILISATION`) accompanied by a fallback `final_thought` as a failed turn rather than an action to carry out.
+*   **11.2 Completion signal:** Judges an `orchestrate` run on `status`, `loop_complete`, `stages[]` and the exit code together: success only when `status` is `completed`, `loop_complete` is `true` and the exit code is `0`. Does not read `is_complete` (Node 2's own flag) as loop completion, reads exit code `2` as a partial or failed cycle rather than a crash, and treats a placeholder `proposed_action` (e.g. `AWAIT_STABILISATION`) accompanied by a fallback `final_thought` as a failed turn rather than an action to carry out.
 
 ## 12. Retrieval Ranking & Anchoring
 *Applicable only when the fixture returns recall results, or expects a `consolidate` call. **N/A** for every fixture that does not.*

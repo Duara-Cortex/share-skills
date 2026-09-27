@@ -284,7 +284,7 @@ The user instructs the agent:
 
 ---
 
-## 7. Scenario G: Orchestrate False-Completion Signal
+## 7. Scenario G: Orchestrate Partial Cycle (Failed Deliberation)
 
 ### Trigger
 An end-to-end cognitive run is launched via `sekha-cluster-tool orchestrate`. During execution, the Stage 3 deliberation service on Node 2 fails or is unreachable:
@@ -296,28 +296,34 @@ sekha-cluster-tool orchestrate \
   --sync
 ```
 
-### Emitted Output (False Completion)
+### Emitted Output (exit code 2; count-only summaries elided)
 ```json
 {
-  "trace_id": "trc-pwr-991",
-  "status": "completed",
-  "stages": [
-    { "stage_index": 1, "name": "filter", "status": "ok" },
-    { "stage_index": 2, "name": "recall", "status": "ok" },
-    { "stage_index": 3, "name": "deliberate", "status": "error" },
-    { "stage_index": 4, "name": "consolidate", "status": "ok" }
-  ],
+  "status": "partial",
   "is_complete": false,
+  "stages": [
+    { "stage_name": "1_sensory_filter", "status": "success", "duration_ms": 142.7 },
+    { "stage_name": "2_long_term_recall", "status": "success", "duration_ms": 118.4 },
+    { "stage_name": "3_working_deliberate", "status": "failed", "error": "context deadline exceeded", "duration_ms": 8669.0 },
+    { "stage_name": "4_memory_consolidate", "status": "success", "duration_ms": 16240.5 }
+  ],
   "final_thought": "Deliberation service unreachable; fallback to direct response",
-  "proposed_action": "AWAIT_STABILISATION"
+  "proposed_action": "AWAIT_STABILISATION",
+  "trace_id": "trc-pwr-991",
+  "session_id": "sess-pwr-991",
+  "total_duration_ms": 25170.6,
+  "loop_complete": false
 }
 ```
 
+Before v1.0.12 the same failure was reported as `"status": "completed"`. From v1.0.12 the status is truthful.
+
 ### Agent Behaviour
-- **Rule**: **Never treat top-level `"status": "completed"` as success.** Inspecting `status` or `stages[]` alone misses deliberation failures.
-- **Verification**: The agent inspects `is_complete` and `final_thought`.
-- **Finding**: `is_complete` is `false`, and `final_thought` indicates `"Deliberation service unreachable; fallback to direct response"` with a placeholder `proposed_action` of `AWAIT_STABILISATION`.
+- **Rule**: Exit code `2` is a partial or failed cycle, not a crash. Read the JSON on `stdout`, and judge the cycle on `status`, `loop_complete` and `stages[]` together. `is_complete` is Node 2's own flag, not a loop-completion signal.
+- **Verification**: The agent names each failed stage from `stages[]` and quotes its `error`.
+- **Finding**: `status` is `partial`, `loop_complete` is `false`, and `3_working_deliberate` failed with `context deadline exceeded`. `final_thought` indicates `"Deliberation service unreachable; fallback to direct response"` with a placeholder `proposed_action` of `AWAIT_STABILISATION`.
 - **Action**:
   - Treat this as a **failed cognitive turn**, NOT an action to execute.
   - Do NOT execute `AWAIT_STABILISATION` as a legitimate operational response.
+  - Do NOT re-run `orchestrate`: `4_memory_consolidate` already succeeded, so a re-run would store the episode twice.
   - Report the deliberation outage and the in-process consolidation pollution (`trace_id: trc-pwr-991`) to the operator, and initiate manual recovery or heuristic fallback procedures.

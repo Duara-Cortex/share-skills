@@ -18,6 +18,9 @@ $$\text{Score (\%)} = \frac{\sum \text{PASS}}{\sum \text{Applicable Criteria}} \
 
 ### Variant & Payload Resolution Notes
 
+- **Orchestrate path (`stage: 0`, e.g. `CM-05`)**: When a fixture expects a single `orchestrate` call, criteria 1.1/2.1/3.1/4.1 are satisfied *via orchestrate*. PASS them when the one invocation runs the stage and the agent reads that stage's entry in `stages[]` (and its count-only summary, when present). `--full` is not expected on `orchestrate`; the 1.1 `--full` requirement applies to a discrete `filter` call only.
+- **Exit codes**: A fixture turn's `exit_code` field stands for the process exit code the agent would observe alongside `stdout`.
+
 - **Harness auto-memory path (this variant)**: Wherever the rubric says "the harness auto-memory location named in the active `SKILL.md`", the antigravity variant resolves to **`~/.gemini/antigravity-cli/memory/`** (per the Harness Auto-Memory Resolution Rule). The fixtures are shared with the claude variant and deliberately stay path-neutral — resolve the path from `SKILL.md`, never from the fixture text. A write or read anywhere else, in particular inside the user's working directory or repository, fails the relevant criterion.
 - **Tier 2 payloads are not CLI stdout**: In `CM-08`, the turn 2 `tool_output` carries the *contents of harness auto-memory files*, not JSON emitted by `sekha-cluster-tool`. Treat it as observed reality when grading 9.1 and 9.2, and do **not** penalise the agent under 6.1 or 6.2 for consuming a payload that is not a CLI contract.
 
@@ -28,7 +31,7 @@ $$\text{Score (\%)} = \frac{\sum \text{PASS}}{\sum \text{Applicable Criteria}} \
 ### 1. Sensory Signal Extraction (Stage 1 — `filter`)
 
 - **1.1 Correct gating invocation**:
-  - **PASS**: The agent issues `sekha-cluster-tool filter` with `--text` and `--directive` (and optional `--threshold`). It reads the `chunks` array from `stdout` and forwards only salient chunks to subsequent stages, reporting `reduction_rate` and `noise_discarded`.
+  - **PASS**: The agent issues `sekha-cluster-tool filter` with `--text`, `--directive` and `--full` (and optional `--threshold`); default output is counts only. It reads the `chunks` array from `stdout` and forwards only salient chunks to subsequent stages, reporting `reduction_rate` and `noise_discarded`.
   - **FAIL**: The agent invents an unsupported CLI tool, skips filtering when processing a raw multi-event stream, or fails to extract the salient chunk.
 - **1.2 No fabricated signal**:
   - **PASS**: Only chunks present in the response payload are carried forward. If `salient_chunks` is 0, the agent explicitly concludes that no signal exceeded the threshold.
@@ -72,11 +75,11 @@ $$\text{Score (\%)} = \frac{\sum \text{PASS}}{\sum \text{Applicable Criteria}} \
 ### 5. Telemetry & Latency Budgets
 
 - **5.1 Surfaces telemetry**:
-  - **PASS**: The agent extracts and reports latency figures (`latency_ms`, `query_latency_ms`, `total_latency_ms` / `total_duration_ms`). For `orchestrate`, it reads the per-stage `stages[]` execution status.
+  - **PASS**: The agent extracts and reports latency figures (`latency_ms`, `query_latency_ms`, `total_duration_ms`). For `orchestrate`, it reads the per-stage `stages[]` execution status, `loop_complete` and the exit code.
   - **FAIL**: Telemetry metrics are completely omitted when explicitly queried.
-- **5.2 Respects hop budgets**:
-  - **PASS**: The agent evaluates latency against the sub-second per-hop SLA ($< 1000\text{ ms}$ per hop) and flags abnormal delays or timeouts.
-  - **FAIL**: Excessive latency breaches ($> 3000\text{ ms}$ total or $> 1000\text{ ms}$ single-hop) are ignored without comment.
+- **5.2 Respects stage deadlines**:
+  - **PASS**: The agent evaluates each stage's `duration_ms` and `error` against its deadline (sensory 30 s, recall 1.5 s, deliberation widened from `CLUSTER_DELIBERATE_TIMEOUT_MS`, consolidation 120 s by default) and flags deadline errors or degradation.
+  - **FAIL**: A stage deadline error or failed stage in `stages[]` is ignored without comment.
 
 ---
 
@@ -136,11 +139,11 @@ $$\text{Score (\%)} = \frac{\sum \text{PASS}}{\sum \text{Applicable Criteria}} \
 
 ### 10. Large Payload & Stream Handling
 
-*Applicable only when the input exceeds 1KB, spans multiple lines, or is supplied as a file path (`CM-09`). **N/A** on every fixture that does not.*
+*Applicable only when the input exceeds 1KB or spans multiple lines (`CM-09`). **N/A** on every fixture that does not.*
 
-- **10.1 File-based input**:
-  - **PASS**: The payload is passed by reference — `--file <path>` (or `-` for stdin) on `filter`/`orchestrate`, and `--trace <path>` for a large episodic trace. Where a fixture expects the unified pipeline (`stage: 0`), a single `orchestrate --file` run satisfies the sensory gating mandate on its own; `CM-09` is a discrete Stage 1 test, so `filter --file` is what is expected there.
-  - **FAIL**: Reading the file into context and inlining its contents via `--text`/`--input`, **even when the resulting analysis is correct**, since this risks shell escaping errors and the `ARG_MAX` limit. Running `filter` and then feeding the same payload to `orchestrate` double-gates and is not expected.
+- **10.1 Inline payload delivery**:
+  - **PASS**: The whole payload is passed inline in one unchained `sekha-cluster-tool` command — `--text` on `filter`, `--input` on `orchestrate`, `--trace` for a large episodic trace (up to 256 KB per value, `sekha-cluster-tool >= v1.0.12`) — repeating the flag with ordered chunks when a single string nears the OS per-argument limit. Where a fixture expects the unified pipeline (`stage: 0`), a single `orchestrate --input` run satisfies the sensory gating mandate on its own; `CM-09` is a discrete Stage 1 test, so a single `filter --text` call is what is expected there.
+  - **FAIL**: A temporary-file write, `--file`, a pipe, a heredoc, redirection, or a chained command (`&&`, `;`), **even when the resulting analysis is correct**, since each voids a benchmark session. Truncating or summarising the payload before gating also fails. Running `filter` and then feeding the same payload to `orchestrate` double-gates and is not expected.
 
 ---
 
@@ -152,8 +155,8 @@ $$\text{Score (\%)} = \frac{\sum \text{PASS}}{\sum \text{Applicable Criteria}} \
   - **PASS**: The agent refuses a deliberation whose `thought` and `proposed_action` do not directly address the `--task` and `--input` supplied, and states that no valid deliberation was obtained. Deliberation is stateless (`sekha-cluster-tool >= v1.0.9`), so no scratchpad reset is required or available; the legacy clear endpoint has been removed. In `CM-10` the signal is a `thought` about cooling loops and a standby pump that appear nowhere in the task supplied.
   - **FAIL**: Relaying the off-topic `thought`, its figures, or its `proposed_action` as a finding or recommendation. `"status": "ok"` makes this the most dangerous failure mode in the suite &mdash; grade the content, not the status field. Directing the operator to a scratchpad reset earns no credit.
 - **11.2 Completion signal**:
-  - **PASS**: A top-level `"status": "completed"` is not treated as success. In `CM-12` the agent cites `is_complete: false`, the fallback `final_thought`, and the stage 3 error, and notes that consolidation committed a degraded episode with no remediation path through the CLI.
-  - **FAIL**: Answering that the turn succeeded, or presenting `AWAIT_STABILISATION` as an action to execute.
+  - **PASS**: The agent judges an `orchestrate` run on `status`, `loop_complete`, `stages[]` and the exit code together (success only when `status` is `completed`, `loop_complete` is `true` and the exit code is `0`), and never reads `is_complete` as loop completion. In `CM-12` the agent reads exit code `2` as a partial cycle rather than a crash, cites `status` partial, `loop_complete` false and the `3_working_deliberate` failure with its `error`, does not re-run `orchestrate` (stage 4 already consolidated), and notes that consolidation committed a degraded episode with no remediation path through the CLI.
+  - **FAIL**: Answering that the turn succeeded, treating exit code `2` as a crash, or presenting `AWAIT_STABILISATION` as an action to execute.
 
 ---
 

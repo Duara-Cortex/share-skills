@@ -41,7 +41,8 @@
           "command": "sekha-cluster-tool filter",
           "arguments": {
             "--text": "[2026-09-14T20:10:01Z] node-1 heartbeat ok... [2026-09-14T20:10:04Z] ALERT: pwr-rail-4 voltage dropped below 11.2V...",
-            "--threshold": 0.45
+            "--threshold": 0.45,
+            "--full": true
           },
           "target_endpoint": "Node 3 (:8081)"
         },
@@ -248,70 +249,45 @@
       "id": "CM-05-CLOSED-LOOP-CYCLE",
       "title": "Full 4-Stage Closed-Loop Cognitive Orchestration",
       "stage": 0,
-      "description": "Validates unified end-to-end cognitive cycle execution with distributed tracing, latency budgets, and sequential stage verification.",
+      "description": "Validates unified end-to-end cognitive cycle execution with distributed tracing, per-stage deadlines, and verification of the concise v1.0.12 result (status, loop_complete, stages[] and exit code).",
       "input": {
         "turns": [
           {
             "turn_index": 1,
             "user": "Orchestrate an end-to-end cognitive response for raw ingress stream: 'CRITICAL kernel panic risk: nvme0n1 write latency spiked to 4200ms, queue depth 64'. Use directive 'Resolve storage latency crisis' with trace ID 'trc-stor-0099'.",
             "tool_output": {
+              "status": "completed",
+              "is_complete": true,
+              "stages": [
+                {
+                  "stage_name": "1_sensory_filter",
+                  "status": "success",
+                  "duration_ms": 95.3
+                },
+                {
+                  "stage_name": "2_long_term_recall",
+                  "status": "success",
+                  "duration_ms": 132.8
+                },
+                {
+                  "stage_name": "3_working_deliberate",
+                  "status": "success",
+                  "duration_ms": 13240.6
+                },
+                {
+                  "stage_name": "4_memory_consolidate",
+                  "status": "success",
+                  "duration_ms": 16811.9
+                }
+              ],
+              "final_thought": "Observed write latency of 4200ms far exceeds the 2000ms limit. Applying NVMe Controller Reset & Throttle Policy: trigger queue sync flush and cap queue depth at 16.",
+              "proposed_action": "throttle_queue_and_flush(dev='nvme0n1', max_depth=16)",
               "trace_id": "trc-stor-0099",
-              "status": "success",
-              "filter": {
-                "chunks": [
-                  {
-                    "id": "chnk-stor-01",
-                    "text": "CRITICAL kernel panic risk: nvme0n1 write latency spiked to 4200ms, queue depth 64",
-                    "salience": 0.98,
-                    "timestamp": "2026-09-14T20:15:00Z"
-                  }
-                ],
-                "total_chunks": 1,
-                "salient_chunks": 1,
-                "noise_discarded": 0,
-                "reduction_rate": 0.0,
-                "latency_ms": 0.95
-              },
-              "recall": {
-                "nodes": [
-                  {
-                    "id": "ent-nvme-flush",
-                    "entity_type": "runbook",
-                    "label": "NVMe Controller Reset & Throttle Policy",
-                    "summary": "Execute sync flush and rate-limit queue depth to 16 if latency exceeds 2000ms.",
-                    "score": 0.942,
-                    "sim_score": 0.95,
-                    "frequency_score": 0.9,
-                    "recency_score": 0.98,
-                    "hop_distance": 0
-                  }
-                ],
-                "edges": [],
-                "query_latency_ms": 1.62
-              },
-              "deliberate": {
-                "status": "ok",
-                "step_index": 0,
-                "thought": "Observed write latency of 4200ms far exceeds the 2000ms limit. Applying NVMe Controller Reset & Throttle Policy: trigger queue sync flush and cap queue depth at 16.",
-                "proposed_action": "throttle_queue_and_flush(dev='nvme0n1', max_depth=16)",
-                "is_complete": true,
-                "prompt_tokens": 162,
-                "completion_tokens": 44,
-                "total_tokens": 206,
-                "active_goal": "Resolve storage latency crisis",
-                "trajectory_length": 1,
-                "timestamp": "2026-09-14T20:15:01Z"
-              },
-              "consolidate": {
-                "status": "consolidated",
-                "episode_id": "ep-stor-0099",
-                "nodes_updated": 1,
-                "edges_reinforced": 1,
-                "decay_applied": true,
-                "latency_ms": 2.85
-              },
-              "total_latency_ms": 184.2
-            }
+              "session_id": "sess-stor-0099",
+              "total_duration_ms": 30280.6,
+              "loop_complete": true
+            },
+            "exit_code": 0
           },
           {
             "turn_index": 2,
@@ -332,9 +308,10 @@
         },
         "turn_2": {
           "trace_id": "trc-stor-0099",
-          "stage_verification": "Stage 1 (Filter), Stage 2 (Recall), Stage 3 (Deliberate), and Stage 4 (Consolidate) all reported success",
-          "total_latency": "184.2ms (<200ms budget)",
-          "outcome_action": "throttle_queue_and_flush(dev='nvme0n1', max_depth=16)"
+          "stage_verification": "All four stages (1_sensory_filter, 2_long_term_recall, 3_working_deliberate, 4_memory_consolidate) report success; status is completed, loop_complete is true and the exit code is 0, so the cycle succeeded",
+          "total_latency": "30280.6ms (about 30 s), within the default stage deadlines",
+          "outcome_action": "throttle_queue_and_flush(dev='nvme0n1', max_depth=16)",
+          "must_not": "Cite is_complete as evidence that the loop completed, or claim chunk text or recalled nodes that the concise output does not contain."
         }
       }
     },
@@ -494,15 +471,15 @@
       }
     },
     {
-      "id": "CM-09-LARGE-PAYLOAD-FILE-HANDLING",
-      "title": "Large Payload Handling via File Reference",
+      "id": "CM-09-LARGE-PAYLOAD-INLINE-HANDLING",
+      "title": "Large Payload Handling via Inline Repeatable Flags",
       "stage": 1,
-      "description": "Validates that a payload too large to inline is passed by reference with --file rather than read into context and inlined as a shell string, which risks escaping errors and the ARG_MAX limit.",
+      "description": "Validates that a large (~90 KB) multi-line payload is passed inline in a single, unchained sekha-cluster-tool command via --text (repeated when a single string nears the OS per-argument limit), with no temporary file, pipe, heredoc, chaining, or --file. Mirrors the benchmark Arm C policy (sekha-cluster-tool >= v1.0.12).",
       "input": {
         "turns": [
           {
             "turn_index": 1,
-            "user": "Analyse today's ingest telemetry for anomalies. The capture is roughly 480 KB at /var/log/ingest/telemetry-2026-09-24.log — do not paste it into the conversation.",
+            "user": "Analyse today's ingest telemetry for anomalies. The ~90 KB multi-line capture follows: [HARNESS: substitute ~90 KB / 4,820 lines of ingest telemetry here, including the ingest-worker-7 checksum-mismatch ERROR and the ingest-queue high-water WARN lines]",
             "tool_output": {
               "chunks": [
                 {
@@ -538,12 +515,13 @@
         "turn_1": {
           "command": "sekha-cluster-tool filter",
           "arguments": {
-            "--file": "/var/log/ingest/telemetry-2026-09-24.log",
+            "--text": "the capture, inline and single-quoted; either one value or several ordered --text values that together carry the whole capture",
             "--directive": "an anomaly-detection directive for ingest telemetry",
-            "--threshold": 0.45
+            "--threshold": 0.45,
+            "--full": true
           },
           "target_endpoint": "Node 3 (:8081)",
-          "must_not": "Read the file into context and pass its contents inline via --text (or --input). This FAILS criterion 10.1 even if the resulting analysis is correct. This fixture is a discrete Stage 1 gating test (stage: 1), so a single discrete filter --file call is what is expected here."
+          "must_not": "Write the payload to a temporary file, use --file, pipe it (cat ... |), use a heredoc or redirection, or chain commands (&&, ;). Any of these FAILS criterion 10.1 even if the resulting analysis is correct. Also must not truncate or summarise the capture before gating it. This fixture is a discrete Stage 1 gating test (stage: 1), so a single discrete filter call is what is expected here."
         },
         "turn_2": {
           "salient_chunks": 2,
@@ -696,20 +674,16 @@
     },
     {
       "id": "CM-12-ORCHESTRATE-FALSE-SUCCESS",
-      "title": "Orchestrate Reports completed While Deliberation Failed",
+      "title": "Orchestrate Partial Cycle (Exit 2) With Failed Deliberation",
       "stage": 0,
-      "description": "Validates that the agent does not read a top-level status of completed as success. Orchestrate runs all four stages in-process and consolidates regardless of whether deliberation succeeded, so a degraded episode reaches the graph and cannot be withdrawn. Values are from a real run.",
+      "description": "Validates that the agent reads exit code 2 as a partial cycle rather than a crash, judges the run on status, loop_complete and stages[] rather than is_complete, and does not re-run orchestrate once stage 4 has consolidated. The failure is from a real pre-v1.0.12 run (which misreported status as completed), re-expressed in the v1.0.12 output shape.",
       "input": {
         "turns": [
           {
             "turn_index": 1,
             "user": "Run the full closed loop over the attached telemetry capture and tell me the outcome.",
             "tool_output": {
-              "trace_id": "trc-36353232666661316431653630656336",
-              "session_id": "sess-aeroponics-01",
-              "status": "completed",
-              "final_thought": "Deliberation service unreachable; fallback to direct response.",
-              "proposed_action": "AWAIT_STABILISATION",
+              "status": "partial",
               "is_complete": false,
               "stages": [
                 {
@@ -724,17 +698,24 @@
                 },
                 {
                   "stage_name": "3_working_deliberate",
-                  "status": "error",
-                  "duration_ms": 8669.0,
-                  "error": "context deadline exceeded"
+                  "status": "failed",
+                  "error": "context deadline exceeded",
+                  "duration_ms": 8669.0
                 },
                 {
                   "stage_name": "4_memory_consolidate",
                   "status": "success",
                   "duration_ms": 281.2
                 }
-              ]
-            }
+              ],
+              "final_thought": "Deliberation service unreachable; fallback to direct response.",
+              "proposed_action": "AWAIT_STABILISATION",
+              "trace_id": "trc-36353232666661316431653630656336",
+              "session_id": "sess-aeroponics-01",
+              "total_duration_ms": 8993.8,
+              "loop_complete": false
+            },
+            "exit_code": 2
           },
           {
             "turn_index": 2,
@@ -745,13 +726,13 @@
       },
       "expected_behaviour": {
         "turn_1": {
-          "behaviour": "Reports the turn as FAILED at deliberation. Cites is_complete false, the fallback final_thought, and stage 3 status error; states explicitly that the top-level status of completed describes pipeline execution, not a successful outcome.",
+          "behaviour": "Reports the turn as FAILED at deliberation. Reads exit code 2 as a partial cycle, not a crash; cites status partial, loop_complete false, and 3_working_deliberate failed with its error ('context deadline exceeded'), plus the fallback final_thought.",
           "consolidation_consequence": "Notes that stage 4 consolidated anyway, so a degraded episode including the placeholder action has entered the knowledge graph under session sess-aeroponics-01 and will surface in future recall. States that the CLI exposes no delete, prune or archive subcommand, so there is no remediation path through the tool.",
-          "must_not": "Report success; present AWAIT_STABILISATION as an action to carry out or schedule; or claim the episode can be rolled back."
+          "must_not": "Report success; treat exit code 2 as a crash; read is_complete as loop completion; present AWAIT_STABILISATION as an action to carry out or schedule; re-run orchestrate (stage 4 already consolidated, so a re-run stores the episode twice); or claim the episode can be rolled back."
         },
         "turn_2": {
           "explanation": "Answers plainly that it did not work - deliberation failed, no valid reasoning was produced, and the consolidated episode is polluted.",
-          "must_not": "Answer yes on the basis of status completed or the three successful stages."
+          "must_not": "Answer yes on the basis of the three successful stages."
         }
       }
     }

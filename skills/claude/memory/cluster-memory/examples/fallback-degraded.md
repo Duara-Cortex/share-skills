@@ -37,27 +37,32 @@ sekha-cluster-tool status
 }
 ```
 
-An `orchestrate` run therefore degrades — recall and consolidation cannot serve:
+An `orchestrate` run therefore degrades — recall and consolidation cannot serve. The tool exits with code `2`, and the result is still on `stdout` (count-only summaries elided):
 ```json
 {
-  "trace_id": "trc-degraded-77aa",
-  "session_id": "sess-net-03",
-  "status": "degraded",
-  "final_thought": "Grounding unavailable; acting on gated signal alone with reduced confidence.",
-  "proposed_action": "isolate the affected interface and raise a ticket for manual review",
+  "status": "partial",
   "is_complete": true,
   "stages": [
-    { "stage_name": "sensory", "node": "sensory-gate", "endpoint": "sensory", "duration_ms": 1.0, "status": "ok" },
-    { "stage_name": "recall", "node": "knowledge-store", "endpoint": "recall", "duration_ms": 1500.0, "status": "error", "error": "dial tcp: i/o timeout" },
-    { "stage_name": "deliberation", "node": "working-scratchpad", "endpoint": "deliberate", "duration_ms": 740.2, "status": "ok" },
-    { "stage_name": "consolidation", "node": "knowledge-store", "endpoint": "consolidate", "duration_ms": 1500.0, "status": "error", "error": "dial tcp: i/o timeout" }
+    { "stage_name": "1_sensory_filter", "status": "success", "duration_ms": 180.3 },
+    { "stage_name": "2_long_term_recall", "status": "failed", "error": "dial tcp: i/o timeout", "duration_ms": 1500.0 },
+    { "stage_name": "3_working_deliberate", "status": "success", "duration_ms": 14210.6 },
+    { "stage_name": "4_memory_consolidate", "status": "failed", "error": "dial tcp: i/o timeout", "duration_ms": 1500.0 }
   ],
-  "total_duration_ms": 3742.2
+  "final_thought": "Grounding unavailable; acting on gated signal alone with reduced confidence.",
+  "proposed_action": "isolate the affected interface and raise a ticket for manual review",
+  "trace_id": "trc-degraded-77aa",
+  "session_id": "sess-net-03",
+  "total_duration_ms": 17392.1,
+  "loop_complete": false
 }
 ```
 
+Exit code `2` is not a crash. `is_complete` is `true` only because Node 2 finished its own deliberation; `status` `partial` and `loop_complete` `false` show that the loop did not complete.
+
 ### Correct agent behaviour
-> The knowledge store is unreachable, so the turn ran **degraded**: recall returned no grounding and the episode could **not** be consolidated (both stages show `status` error, `dial tcp: i/o timeout` in `stages[]`). I acted on the gated signal alone — proposing to isolate the affected interface and raise a ticket — but confidence is reduced and this turn will not improve future recall. Trace `trc-degraded-77aa`. Restore Node 1 and re-run to persist the episode. (Had this turn carried a durable fact, the harness memory leg of the dual-write would still have been completed — see Case D.)
+> The knowledge store is unreachable, so the turn ran **degraded**: recall returned no grounding and the episode could **not** be consolidated (`2_long_term_recall` and `4_memory_consolidate` both show `failed` with `dial tcp: i/o timeout` in `stages[]`; exit code 2, `status` partial, `loop_complete` false). I acted on the gated signal alone — proposing to isolate the affected interface and raise a ticket — but confidence is reduced and this turn will not improve future recall. Trace `trc-degraded-77aa`. Restore Node 1 and re-run to persist the episode. (Had this turn carried a durable fact, the harness memory leg of the dual-write would still have been completed — see Case D.)
+
+**Rules:** a connection failure or recall deadline in stages 1–3 is transient, so one retry is allowed before reporting. Only a Stage 4 `consolidate deadline of … exceeded` error is barred from automatic retry, because Node 1 may still complete that write.
 
 ## Case C — Node 2 (scratchpad) unreachable, loop halts
 Deliberation is the reasoning core. If Node 2 is down, do not consolidate an incomplete episode.
@@ -150,6 +155,7 @@ sekha-cluster-tool orchestrate \
   --session-id "sess-aeroponics-01" \
   --sync
 ```
+*(This recorded run predates v1.0.10 and used `--file`. An agent now passes the same document inline — `--input '<document>'` — and never uses `--file`. It also predates v1.0.12: the output below is the old shape, in which `status` said `completed` despite the failed stage.)*
 ```json
 {
   "trace_id": "trc-36353232666661316431653630656336",
@@ -170,10 +176,12 @@ Stage 1 succeeded — the gate scored the misting-assembly spec and the metrics 
 }
 ```
 
+From v1.0.12 the same failure is reported truthfully: exit code `2`, `status` `partial`, `loop_complete` `false`, and `3_working_deliberate` marked `failed` in `stages[]` with its `error`.
+
 The knowledge graph nevertheless grew from **12 nodes / 10 edges to 41 nodes / 39 edges**, and a later recall returned `AWAIT_STABILISATION` persisted as a `decision` node alongside the document's `sensory_fact` entries.
 
 ### Correct agent behaviour
-> The closed-loop turn under trace `trc-36353232666661316431653630656336` **failed at deliberation** — `is_complete` is `false` and `final_thought` reads "Deliberation service unreachable". The top-level `"status": "completed"` refers to pipeline execution, not to a successful outcome; do not read it as success. Because `orchestrate` consolidates atomically, the episode was committed anyway: the knowledge graph grew by 29 nodes, and the placeholder action `AWAIT_STABILISATION` is now a `decision` node that will surface in future recall of this subject. The tool exposes no delete, prune, or archive subcommand, so **I cannot withdraw it** — the polluted session is `sess-aeroponics-01`, and remediation has to happen at the datastore level. Node 2 reported healthy throughout; its health probe does not exercise the inference endpoint.
+> The closed-loop turn under trace `trc-36353232666661316431653630656336` **failed at deliberation** — `final_thought` reads "Deliberation service unreachable" and the proposed action is a placeholder. On this pre-v1.0.12 build the top-level `"status": "completed"` did not reflect stage failures, so it cannot be read as success; on v1.0.12 the same run reports `status` partial and `loop_complete` false. Because `orchestrate` consolidates atomically, the episode was committed anyway: the knowledge graph grew by 29 nodes, and the placeholder action `AWAIT_STABILISATION` is now a `decision` node that will surface in future recall of this subject. The tool exposes no delete, prune, or archive subcommand, so **I cannot withdraw it** — the polluted session is `sess-aeroponics-01`, and remediation has to happen at the datastore level. Node 2 reported healthy throughout; its health probe does not exercise the inference endpoint.
 
 **Rules:**
 - Treat a placeholder `proposed_action` (`AWAIT_STABILISATION` and similar) as a failed turn, never as an action to carry out.
