@@ -2,7 +2,7 @@
 
 A declarative skill that lets an AI agent externalise memory and reasoning onto the **Sekha Tri-Node Edge Cognitive Cluster**, instead of holding an entire noisy stream and every recalled fact in its context window.
 
-The skill does not talk to the nodes directly. It drives the compiled **[`sekha-cluster-tool`](https://github.com/Duara-Cortex/sekha-cluster-tool)** CLI (`>= v1.0.9`), which coordinates the cluster deterministically. A compiled binary keeps behaviour stable and prevents runtime drift across harnesses.
+The skill does not talk to the nodes directly. It drives the compiled **[`sekha-cluster-tool`](https://github.com/Duara-Cortex/sekha-cluster-tool)** CLI (`>= v1.0.12`), which coordinates the cluster deterministically. A compiled binary keeps behaviour stable and prevents runtime drift across harnesses.
 
 > This is the **claude** variant. An antigravity variant lives alongside it under `skills/antigravity/memory/cluster-memory/`.
 
@@ -45,7 +45,7 @@ Skip it when the task is self-contained and needs no external memory.
 
 ## Prerequisites
 
-1. **`sekha-cluster-tool >= v1.0.9`** on `PATH`. Verify with `sekha-cluster-tool --version`. The `v1.0.9` floor is required for stateless deliberation (every `deliberate` call is an independent session; multi-step reasoning is caller-owned), and also covers the file-based input forms (`filter --file`, `orchestrate --file`, `consolidate --trace <path>`) the skill uses for large payloads.
+1. **`sekha-cluster-tool >= v1.0.12`** on `PATH`. Verify with `sekha-cluster-tool --version`. The floor covers stateless deliberation (every `deliberate` call is an independent session; multi-step reasoning is caller-owned, since v1.0.9), large inline payloads — `--text`, `--input` and `--trace` accept up to 256 KB inline, and `--text`/`--input` are repeatable (v1.0.10) — and the v1.0.12 changes: concise `orchestrate` output, truthful `status` and `loop_complete`, exit codes `0`/`1`/`2`, and per-stage deadlines from configuration.
 2. **Configured endpoints.** All node addresses default to blank and must be supplied — there are no baked-in IPs.
 
 ## Configuration
@@ -73,28 +73,30 @@ Never hard-code cluster IP addresses — in the skill, in examples, or in agent 
 **Preferred — one traced turn:**
 ```bash
 sekha-cluster-tool orchestrate \
-  --input "<raw stream>" \
+  --input '<raw stream>' \
   --directive "<goal>" \
   --session-id "<id>" \
   --sync
 ```
+A run takes about 45 s and can take up to about 270 s with default stage deadlines, so give the calling shell a timeout of at least 600 s (Claude's Bash tool: `timeout: 600000`). Success means exit code `0`, `status` `completed` and `loop_complete` `true`; exit code `2` is a partial or failed cycle whose JSON is still on `stdout`; exit code `1` means the cycle never ran. `is_complete` is Node 2's deliberation flag, not a loop-completion signal. Default output is a concise 2–3 KB summary; `--full` restores the full payload for operator debugging only.
 
 **Staged — inspect or intervene between stages:**
 ```bash
-sekha-cluster-tool filter      --text "<raw stream>" --directive "<what to attend to>" --threshold 0.45
+sekha-cluster-tool filter      --text '<raw stream>' --directive "<what to attend to>" --threshold 0.45 --full
 sekha-cluster-tool recall      --query "<salient concept>" --top-k 5
 sekha-cluster-tool deliberate  --task "<objective>" --input "<observation>" --context "<grounding fact>" --timeout 45s
 sekha-cluster-tool consolidate --goal "<objective>" --outcome "success" --session-id "<id>" --sync
 ```
 
-Edge SLM deliberation on Node 2 takes 25–35 s, hence `--timeout 45s`.
+Edge SLM deliberation on Node 2 takes 25–35 s, hence `--timeout 45s`. Staged `filter` takes `--full` because its default output is counts only and the chunk text is carried forward.
 
-**Large payloads.** When an input exceeds 1KB or spans multiple lines, pass it by reference rather than inlining it — this avoids shell escaping errors and the `ARG_MAX` limit:
+**Large payloads.** Pass them inline in a single command — `--text`, `--input` and `--trace` accept up to 256 KB each, multi-line included. When one string approaches the OS per-argument limit (128 KB on Linux), repeat the flag with ordered chunks:
 ```bash
-sekha-cluster-tool filter      --file <path> --directive "<what to attend to>"   # or --file - for stdin
-sekha-cluster-tool orchestrate --file <path> --directive "<goal>" --sync
-sekha-cluster-tool consolidate --session-id "<id>" --goal "<objective>" --trace <path/to/trace.json> --sync
+sekha-cluster-tool filter      --text '<stream>' --directive "<what to attend to>" --full
+sekha-cluster-tool orchestrate --directive "<goal>" --input '<chunk 1>' --input '<chunk 2>' --sync
+sekha-cluster-tool consolidate --session-id "<id>" --goal "<objective>" --trace '<trace json>' --sync
 ```
+Agents never write temporary files, pipe, heredoc or chain commands to deliver a payload. The tool's `--file` flag is an operator convenience for hand-run CLI use only and is not used by agents during benchmark tasks.
 
 Every request carries an `X-Trace-ID` so operations can be correlated across cluster logs. Diagnostic step logs go to `stderr` under `--verbose`; only `stdout` carries the JSON contract.
 

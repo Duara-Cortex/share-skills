@@ -27,14 +27,23 @@ The cluster **augments** the Claude harness's own memory; it never replaces it. 
   * You only need generic reasoning with no persistence — do not manufacture cluster calls for their own sake.
 
 ## Prerequisites
-1. **Compiled tool:** `sekha-cluster-tool >= v1.0.9` must be on `PATH`. Verify with `sekha-cluster-tool --version`. This skill never reimplements the tool's logic — a compiled binary prevents behavioural drift. The `>= v1.0.9` floor is required by stateless deliberation (below) and by the file-based input forms (`filter --file`, `orchestrate --file`, `consolidate --trace <path>`) this skill mandates for large payloads.
+1. **Compiled tool:** `sekha-cluster-tool >= v1.0.12` must be on `PATH`. Verify with `sekha-cluster-tool --version`. This skill never reimplements the tool's logic — a compiled binary prevents behavioural drift. The `>= v1.0.12` floor is required by stateless deliberation (below), by large inline payloads (`--text`/`--input`/`--trace`, up to 256 KB) and repeatable `--text`/`--input` flags (see **Large Input & Stream Handling**), and by the concise `orchestrate` output, truthful `status` and `loop_complete`, exit codes and configurable stage deadlines (see **Running `orchestrate` & Reading the Result**).
 2. **Configuration (`.env`):** All node endpoints default to **blank** and must be configured. The tool resolves configuration with 12-factor precedence: **CLI flags > OS environment variables > `.env` file > compile-time defaults > blank.** Configure via:
    * `sekha-cluster-tool env init` — write a blank starter `.env` in the working directory.
    * Populate `CLUSTER_SENSORY_URL`, `CLUSTER_WORKING_URL`, `CLUSTER_KNOWLEDGE_URL` (and optional `CLUSTER_*_TIMEOUT_MS`, `CLUSTER_SALIENCE_THRESHOLD`, `CLUSTER_RECALL_TOP_K`).
    * `sekha-cluster-tool env show` — print the actively resolved configuration.
    * **Never hard-code cluster IP addresses in this skill, in examples, or in agent output.** Reference the tool and its `.env` configuration only.
 3. **Reachability:** Confirm nodes respond with `sekha-cluster-tool status` before a live run. `status` probes health endpoints only — the working layer can report `"status": "healthy"` with `"llama_inference": "reachable"` and still fail every `deliberate` call with `context deadline exceeded`. Only an actual deliberation proves the inference path; see the Preflight step.
-4. **Deliberation budget:** Node 2 needs 25–35 s. `--timeout 45s` governs a discrete `deliberate` call, but **not** the deliberation stage inside `orchestrate` — that stage draws its budget solely from `CLUSTER_DELIBERATE_TIMEOUT_MS`, and a common default of `8000` aborts deliberation before it can finish. Set `CLUSTER_DELIBERATE_TIMEOUT_MS=45000` or higher in configuration before any `orchestrate` run, and confirm with `env show` that `deliberate_timeout` reads `45000000000` (nanoseconds). Configuring the budget does not by itself make a degraded Node 2 succeed — it only removes the flag's silent inertness on this path.
+4. **Stage deadlines:** Each `orchestrate` stage has its own deadline, resolved **flag > env > `.env` > default**:
+
+   | Stage | Setting | Default |
+   | :--- | :--- | :--- |
+   | 1. Sensory | `--sensory-timeout`, `CLUSTER_SENSORY_TIMEOUT_MS` | 30 s |
+   | 2. Recall | `--timeout`, `CLUSTER_DEFAULT_TIMEOUT_MS` | 1.5 s |
+   | 3. Deliberate | `CLUSTER_DELIBERATE_TIMEOUT_MS` — a floor; the tool widens it to 5 s + 25 ms per prompt token + 100 ms per `--max-tokens` | about 117 s worst case |
+   | 4. Consolidate | `--consolidate-timeout`, `CLUSTER_CONSOLIDATE_TIMEOUT_MS` | 120 s |
+
+   On `orchestrate`, `--timeout` governs **recall only**. A deadline error names the value used and where it came from. A discrete `deliberate` call still takes `--timeout 45s`. Measured live on 87 KB of salient input with `--sync`: sensory 0.1–0.3 s, recall 0.1–0.2 s, deliberate 12–28 s, consolidate about 17 s — about 45 s in total.
 
 ## Memory Architecture — Two Stores, One Contract
 Durable memory is layered. Each store has a distinct failure mode, which is precisely why both are written.
@@ -62,7 +71,7 @@ Each stage maps to one subcommand, one node, and one payload contract. The respo
 ## Progressive Disclosure — Read Only What You Need
 * Deciding how to shape a request or read a response? Open the matching file in [`schema/`](schema/).
 * Need to see a full worked cognitive cycle? Read [`examples/closed-loop-cycle.md`](examples/closed-loop-cycle.md).
-* Need the staged, manual four-command flow, the file-based forms, or the dual-write and two-tier notes in context? Read [`examples/staged-invocation.md`](examples/staged-invocation.md).
+* Need the staged, manual four-command flow, the large inline and repeated-flag forms, or the dual-write and two-tier notes in context? Read [`examples/staged-invocation.md`](examples/staged-invocation.md).
 * Need graceful degradation when a node is down, the dual-write redundancy and two-tier retrieval fallback traces, or the Condition D dual-write walkthrough? Read [`examples/fallback-degraded.md`](examples/fallback-degraded.md).
 * Running the self-scoring evaluation? See the co-located [`eval.md`](eval.md).
 
@@ -92,7 +101,7 @@ Commit the fact to Claude's persistent harness memory, at the directory resolved
 
 ### Write 2 — Sekha cluster memory
 * **Do NOT** use `--goal` alone — it truncates the label to 40 characters and loses the parameters.
-* **Use** `consolidate --sync --trace '<json>'` with the JSON written inline inside single quotes for small traces, or `--trace <path>` for large ones (see **Large Input & Stream Handling**).
+* **Use** `consolidate --sync --trace '<json>'` with the JSON written inline inside single quotes (up to 256 KB; see **Large Input & Stream Handling**). Run it with the Bash `timeout` set to `600000` — see **Running `orchestrate` & Reading the Result**.
 * **Always anchor the write.** Pass `--anchor "#project:<subject>"` (repeatable, or comma-delimited) so the fact can later be scoped precisely at recall. This is the single most effective retrieval lever, because it excludes unrelated traffic categorically instead of relying on ranking. An unanchored fact can only ever be found by similarity, and `--anchor-mode filter` will never return it. Choose a stable, predictable tag — reuse the same anchor for the same subject across sessions, since a tag you cannot guess later is worthless.
 
 ```bash
@@ -145,35 +154,56 @@ Ground decisions **only** in verified facts from Tier 1 or Tier 2. Never use ano
 ## Tripartite Operational Mandates
 Sekha is a three-node cognitive system, not a remote key-value store for Node 1. Engage each node for the work it exists to do.
 
-* **Node 3 — sensory gating (`filter`).** You **MUST** run `filter` before reading raw logs, error streams, sensor telemetry, or verbose API payloads larger than 1KB into context. Never ingest a raw burst directly into the frontier context window. Carry forward only the returned salient `chunks`; discard the rest, and report `reduction_rate` and `noise_discarded`. An `orchestrate` run satisfies this mandate on its own — it gates the stream internally before recall, so never run `filter` and then feed the same payload to `orchestrate`.
+* **Node 3 — sensory gating (`filter`).** You **MUST** run `filter` before reading raw logs, error streams, sensor telemetry, or verbose API payloads larger than 1KB into context. Never ingest a raw burst directly into the frontier context window. Carry forward only the salient `chunks` returned by `filter --full` (default `filter` output is counts only); discard the rest, and report `reduction_rate` and `noise_discarded`. An `orchestrate` run satisfies this mandate on its own — it gates the stream internally before recall, so never run `filter` and then feed the same payload to `orchestrate`.
 * **Node 2 — working deliberation (`deliberate`).** You **MUST** run `deliberate` for speculative multi-step hypothesis evaluation, diagnostic root-cause analysis, and tactical decision trees, **before** executing an action. Offload that planning to the local edge SLM rather than spending frontier tokens on it. Always pass `--timeout 45s` on a discrete `deliberate` call. That flag does **not** reach the deliberation stage of `orchestrate`; configure `CLUSTER_DELIBERATE_TIMEOUT_MS` for that path.
 * **Node 1 — knowledge graph (`recall` & `consolidate`).** Query relational knowledge for grounding, and commit completed deliberation episodes so future recall improves.
 * **Unified pipeline (`orchestrate`).** Whenever an end-to-end turn is required — Stream → Filter → Recall → Deliberate → Consolidate — run it in one shot with `orchestrate` rather than hand-sequencing the four subcommands.
 
 ## Large Input & Stream Handling
-Inline shell strings break on large or multi-line payloads: escaping errors and the shell `ARG_MAX` limit. When an input exceeds 1KB or spans multiple lines, pass it by file.
+Pass payloads inline, in a single `sekha-cluster-tool` command. `--text`, `--input`, and `--trace` accept large inline strings of up to 256 KB, including multi-line content, so a large payload never needs a temporary file.
 
-* **`filter --file <path>`** (or `-` for stdin) instead of `--text`:
+* **One inline value** for anything that fits comfortably in one argument:
   ```bash
-  sekha-cluster-tool filter --file /path/to/stream.log --directive "<what to attend to>" --threshold 0.45
+  sekha-cluster-tool filter --text '<raw stream>' --directive "<what to attend to>" --threshold 0.45 --full
+  sekha-cluster-tool orchestrate --input '<raw stream>' --directive "<goal>" --sync
+  sekha-cluster-tool consolidate --session-id "<id>" --goal "<objective>" --trace '{"session_id":"<id>", ...}' --sync
   ```
-* **`orchestrate --file <path>`** (or `-` for stdin) instead of `--input`:
+* **Repeat the flag** when a single string approaches the operating system's argument limits (Linux caps one argument at 128 KB, whatever the tool accepts). Split the payload on line boundaries and pass each chunk, in order, as its own flag:
   ```bash
-  sekha-cluster-tool orchestrate --file /path/to/payload.txt --directive "<goal>" --sync
-  ```
-* **`consolidate --trace <path>`** — write the trace JSON to a file, then pass its path:
-  ```bash
-  sekha-cluster-tool consolidate --session-id "<id>" --goal "<objective>" --trace "/path/to/trace.json" --sync
+  sekha-cluster-tool orchestrate --directive "<goal>" --input '<chunk 1>' --input '<chunk 2>' --sync
   ```
 
-Keep small inline traces in single quotes (`--trace '{"session_id":...}'`). Avoid heredocs, pipes, and shell variables — they trigger permission prompts under `Bash(sekha-cluster-tool *)` allowlists. For anything large, `--file` and `--trace <path>` are the tool's own supported input route: the payload never enters the command line, so the invocation stays a single inspectable command and clear of `ARG_MAX`.
+Wrap payloads in single quotes so `$`, backticks, and `!` stay literal; write an embedded single quote as `'\''`. Avoid heredocs, pipes, redirection, shell variables, and chained commands (`&&`, `;`) — they trigger permission prompts under `Bash(sekha-cluster-tool *)` allowlists and void benchmark sessions, which permit exactly one unchained `sekha-cluster-tool` command and no temporary-file writes.
+
+> **`--file` is an operator convenience only.** The tool's `--file <path>` / `--file -` and `--trace <path>` forms exist for humans running the CLI by hand. Do **not** use them as an agent during benchmark tasks, and never write a payload to a temporary file to feed them — pass it inline instead.
+
+## Running `orchestrate` & Reading the Result
+A normal `orchestrate` run takes about 45 s. The default stage deadlines add up to about 270 s (30 + 1.5 + 117 + 120), and the Bash tool's own default timeout is 120 s.
+
+* **Always set the Bash timeout.** Every Bash call that runs `sekha-cluster-tool orchestrate` or `consolidate --sync` must pass the Bash tool's `timeout` parameter as `600000` (ms). If Bash kills the process, no JSON is printed and every stage outcome is lost. `600000` is the Bash tool's maximum, so do not pass a `--consolidate-timeout` that would push the run past 600 s. Set it as the tool parameter; never wrap the command in a shell `timeout`, which breaks the single `sekha-cluster-tool` command form.
+* **Parse `stdout` only.** It always carries exactly one JSON object; diagnostics go to `stderr`. Never add `2>&1`.
+* **Judge the cycle on `status`, `loop_complete`, `stages[]` and the exit code together:**
+
+  | Exit code | Meaning | What to do |
+  | :--- | :--- | :--- |
+  | `0` | `status` is `completed`: no stage failed | Success, provided `loop_complete` is also `true`. |
+  | `2` | `status` is `partial` (some stages failed) or `failed` (all failed) | Not a crash. Read the JSON on `stdout`, name each failed stage and quote its `error`. |
+  | `1` | Error shape `{"status":"error","error":…,"trace_id":…}`; the cycle never ran | Report `error` as a configuration or invocation problem. |
+  | `0` with `loop_complete` `false` | No stage `failed`, but not all reported `success` — e.g. stage 3 `over_budget` | Not a success. Name the stage that did not succeed and report it; do not retry an `over_budget` stage. |
+
+  A cycle succeeded **only** when `status == "completed"`, `loop_complete == true` **and** the exit code is `0`. `loop_complete` is true only when all four stages report `success`. `is_complete` is Node 2's own deliberation flag and does **not** mean the loop completed.
+* **`stages[]`** lists `1_sensory_filter`, `2_long_term_recall`, `3_working_deliberate` and `4_memory_consolidate`. Each entry has `stage_name`, `status`, `duration_ms`, and `error` on failure (capped at about 300 bytes). `status` is `success` or `failed`; stage 3 may also be `over_budget`, meaning it ran but the prompt was over the Node 2 context budget.
+* **Retry rules for failed stages:**
+  * **Stages 1–3, transient failure** (connection refused, HTTP 5xx, a sensory or recall deadline): you may retry **once**. A retried `orchestrate` re-runs every stage, including consolidation — if `4_memory_consolidate` already reported `success`, do not re-run the whole cycle, because that stores the episode twice; report the failure instead.
+  * **Stage 3 context budget** (`over_budget`, or an error saying the prompt "would exceed the Node 2 context budget"): not transient. Report it; do not retry.
+  * **Stage 4 deadline** (`consolidate deadline of … exceeded`): **never retry automatically.** Node 1 may still finish the write after the client gives up, so a retry can store the memory twice. Report it and suggest raising `CLUSTER_CONSOLIDATE_TIMEOUT_MS`, or retrying once with `--consolidate-timeout` only if the user agrees.
+* **Default output is concise** — about 2–3 KB for any input up to the 1 MiB cap. After the top-level fields and `stages[]` come count-only `sensory`, `recall` (including `relevance_gate` counts), `deliberation` and `consolidation` summaries. There is no chunk text, recalled node list, or per-node gate decision in it. **Never pass `--full` to `orchestrate`** unless the user explicitly asks for debug output; it restores the old full payload (about 200 KB for an 87 KB input). See [`schema/orchestrate.json`](schema/orchestrate.json).
 
 ## Step-by-Step Instructions
 
 <Sequence>
   <Step title="Confirm Tooling & Configuration" subtitle="Preflight">
     Verify `sekha-cluster-tool` is installed and endpoints are resolved (`env show`). If endpoints are blank or `status` reports an unreachable node, enter the Fallback Protocol rather than fabricating results. A degraded cluster never cancels the harness memory write.
-    Check that `env show` reports a `deliberate_timeout` of at least `45000000000`; if it is lower, the deliberation stage of `orchestrate` will abort early no matter what `--timeout` you pass.
     **Before running `orchestrate` on a payload you care about, probe deliberation directly** — `status` reporting healthy is not sufficient:
     `sekha-cluster-tool deliberate --task "preflight" --input "preflight" --context "preflight" --timeout 45s`
     If this returns `"status": "error"` with `context deadline exceeded`, Node 2's inference path is degraded regardless of what `status` says. Take the staged route or halt; do not send a large payload through `orchestrate`, which would consolidate a failed episode.
@@ -181,8 +211,9 @@ Keep small inline traces in single quotes (`--trace '{"session_id":...}'`). Avoi
   </Step>
   <Step title="Stage 1 — Gate the Stream" subtitle="filter">
     Dispatch the raw stream to the attention gate:
-    `sekha-cluster-tool filter --text "<raw stream>" --directive "<what to attend to>" --threshold 0.45`
-    **Mandatory for any raw log, error stream, telemetry, or payload over 1KB — gate it here rather than reading it into context.** When the input exceeds 1KB or spans multiple lines, pass `--file <path>` (or `-` for stdin) instead of `--text`.
+    `sekha-cluster-tool filter --text '<raw stream>' --directive "<what to attend to>" --threshold 0.45 --full`
+    **Mandatory for any raw log, error stream, telemetry, or payload over 1KB — gate it here rather than reading it into context.** Pass the payload inline via `--text` (up to 256 KB); repeat `--text` once a single string nears the OS argument limit.
+    Pass `--full` here: default `filter` output is counts only, and this stage needs the chunk text to carry forward. This is the only place the skill uses `--full` by default.
     Read `chunks`, `salient_chunks`, `noise_discarded`, and `reduction_rate`. Carry the salient `chunks` forward; discard the rest. If `salient_chunks` is 0, report that nothing rose above the salience threshold instead of inventing signal.
   </Step>
   <Step title="Stage 2 — Ground with Recall" subtitle="recall">
@@ -203,24 +234,25 @@ Keep small inline traces in single quotes (`--trace '{"session_id":...}'`). Avoi
     Commit the completed episode:
     `sekha-cluster-tool consolidate --goal "<objective>" --outcome "success|failure|partial" --session-id "<id>" --anchor "#project:<subject>" --sync`
     Anchor every write. `--anchor` is what makes `--anchor-mode filter` usable at recall; an unanchored episode is reachable only by similarity ranking.
-    Confirm a `trace_id` and a terminal `status` are returned. Use `--sync` only when you need `entities_extracted`/`nodes_fused`/`edges_reinforced` immediately; otherwise allow background consolidation. For a large episodic trace, write the JSON to a file and pass `--trace "/path/to/trace.json"`.
+    Confirm a `trace_id` and a terminal `status` are returned. Use `--sync` only when you need `entities_extracted`/`nodes_fused`/`edges_reinforced` immediately; otherwise allow background consolidation. With `--sync`, set the Bash `timeout` to `600000`, and never retry a `consolidate deadline of … exceeded` error automatically. Pass a large episodic trace inline as `--trace '<json>'` (up to 256 KB), never via a temporary file.
   </Step>
   <Step title="Dual-Write Durable Facts" subtitle="Persistence">
     If the turn produced a project invariant or grounding fact — a configuration, credential, parameter, policy, or standing decision — persist it to **both** stores per the **Dual-Write Contract**: record it under harness memory, and commit it to the cluster with the `--trace` pattern rather than `--goal` alone. Transient scratchpad state is written to neither. Confirm storage only after checking both legs, and name any leg that failed.
   </Step>
   <Step title="Verify & Report" subtitle="Quality Assurance">
     Confirm each stage returned valid JSON and a plausible latency (`latency_ms`, `query_latency_ms`, `total_duration_ms`, or the per-stage `stages[]` telemetry). Surface the `trace_id` so the operator can correlate the turn across cluster logs.
-    **Do not treat the top-level `status` as a completion signal.** An `orchestrate` run can return `"status": "completed"` while `is_complete` is `false` and `final_thought` reads "Deliberation service unreachable; fallback to direct response." Check `is_complete` and `final_thought` before reporting success, and treat a placeholder `proposed_action` such as `AWAIT_STABILISATION` as a failed turn, not an action.
+    **Do not judge an `orchestrate` run on one field.** It succeeded only when `status == "completed"`, `loop_complete == true` and the exit code is `0`. `is_complete` is Node 2's own flag and says nothing about stages 1, 2 or 4. On exit `2`, name each failed stage from `stages[]` and quote its `error`. Treat a placeholder `proposed_action` such as `AWAIT_STABILISATION` as a failed turn, not an action.
   </Step>
 </Sequence>
 
 >
-> **Shortcut — with preconditions:** For an end-to-end turn, a single `orchestrate` call runs all four stages, threads one `X-Trace-ID`, and returns nested stage payloads plus `stages[]` telemetry:
-> `sekha-cluster-tool orchestrate --input "<raw stream>" --directive "<goal>" --sync`
-> For a large or multi-line stream, use `--file <path>` (or `-` for stdin) in place of `--input`.
+> **Shortcut — with preconditions:** For an end-to-end turn, a single `orchestrate` call runs all four stages, threads one `X-Trace-ID`, and returns a concise result — `status`, `loop_complete`, `stages[]` and count-only stage summaries:
+> `sekha-cluster-tool orchestrate --input '<raw stream>' --directive "<goal>" --sync`
+> Run it with the Bash `timeout` set to `600000`, and read the result as described in **Running `orchestrate` & Reading the Result**.
+> For a large or multi-line stream, keep it inline and repeat `--input` once a single string nears the OS argument limit: `--input '<chunk 1>' --input '<chunk 2>'`.
 >
 > **Use it only when both hold:**
-> 1. `env show` reports `deliberate_timeout` ≥ `45000000000`, **and** a preflight `deliberate` probe succeeded. `--timeout` does not govern this path.
+> 1. A preflight `deliberate` probe succeeded. On this path `--timeout` governs recall only; deliberation's deadline comes from `CLUSTER_DELIBERATE_TIMEOUT_MS`, widened by the tool.
 > 2. A degraded episode entering the knowledge graph is acceptable.
 >
 > **Why the second condition matters:** `orchestrate` runs all four stages inside the binary, and **consolidation is not conditional on deliberation succeeding**. If Node 2 fails, the episode is still committed — including a placeholder `proposed_action` such as `AWAIT_STABILISATION`, which is persisted as a `decision` node and will surface in future recall. The agent gets no decision point between Stage 3 and Stage 4 and **cannot prevent this**.
@@ -234,36 +266,40 @@ Keep small inline traces in single quotes (`--trace '{"session_id":...}'`). Avoi
 * **Determinism:** Report only what the tool returned. Never synthesise chunk text, recalled entities, thoughts, or consolidation receipts that did not appear on `stdout`.
 
 ## Fallback Protocols
-Follow the tool's own timeout budgets (`<1s` per hop; deliberation up to its configured budget) and degrade gracefully — never fabricate a stage result.
+Follow the tool's stage deadlines (see **Prerequisites**) and the retry rules in **Running `orchestrate` & Reading the Result**, and degrade gracefully — never fabricate a stage result.
 
-* **Tool missing / not on PATH:** State that `sekha-cluster-tool >= v1.0.9` is required and do not emulate cluster behaviour in-context. If the user asked you to memorise something, still complete the harness memory write and report that cluster consolidation is unavailable.
+* **Tool missing / not on PATH:** State that `sekha-cluster-tool >= v1.0.12` is required and do not emulate cluster behaviour in-context. If the user asked you to memorise something, still complete the harness memory write and report that cluster consolidation is unavailable.
 * **Blank configuration:** If `env show` reveals a blank endpoint, prompt the operator to run `env init` and populate the relevant `CLUSTER_*_URL`. Do not guess an address.
-* **Node unreachable (Stage 1 or 2):** Sensory or recall failure is recoverable. Proceed with reduced grounding, explicitly flag the degraded stage and its `status`/`error` from `stages[]`, and lower confidence in the outcome accordingly.
+* **Node unreachable (Stage 1 or 2):** Sensory or recall failure is recoverable. Proceed with reduced grounding, explicitly flag the degraded stage and its `status`/`error` from `stages[]`, and lower confidence in the outcome accordingly. A transient failure (connection refused, HTTP 5xx, a sensory or recall deadline) may be retried once.
 * **Recall degraded or empty (Tier 1 miss):** Drop to **Tier 2** and read harness memory. Report which tier supplied each value. If neither tier holds the fact, decline honestly rather than guessing.
 * **Scratchpad unreachable (Stage 3) — staged path:** Deliberation is the reasoning core. If Node 2 is down, halt the loop, report the failure with its `trace_id`, and do not run Stage 4. This is enforceable because you issue `consolidate` yourself.
-* **Scratchpad unreachable (Stage 3) — `orchestrate` path:** The episode **has already been consolidated** by the time you see the response; you cannot halt it. Report plainly that a degraded episode was committed under its `trace_id`, that `is_complete` is `false`, and that a placeholder action was persisted and will pollute future recall. The tool exposes no delete, prune, or archive subcommand, so **the skill offers no remediation path** — say so rather than implying the entry can be withdrawn, and flag the polluted `session_id` so the operator can act at the datastore level.
-* **Consolidation unreachable (Stage 4):** The reasoning result still stands. Return the deliberated action, and note that the episode could not be persisted so recall will not improve from this turn. For a durable fact, the **Dual-Write Contract** means the harness memory entry has already preserved it — say so, and queue the cluster trace for retry rather than claiming full redundancy.
+* **Scratchpad unreachable (Stage 3) — `orchestrate` path:** The episode **has already been consolidated** by the time you see the response; you cannot halt it. Report plainly that a degraded episode was committed under its `trace_id`, that `3_working_deliberate` shows `failed` in `stages[]` (so `status` is `partial` and `loop_complete` is `false`), and that a placeholder action was persisted and will pollute future recall. The tool exposes no delete, prune, or archive subcommand, so **the skill offers no remediation path** — say so rather than implying the entry can be withdrawn, and flag the polluted `session_id` so the operator can act at the datastore level.
+* **Consolidation unreachable (Stage 4):** The reasoning result still stands. Return the deliberated action, and note that the episode could not be persisted so recall will not improve from this turn. For a durable fact, the **Dual-Write Contract** means the harness memory entry has already preserved it — say so, and queue the cluster trace for retry rather than claiming full redundancy. The exception is a `consolidate deadline of … exceeded` error: Node 1 may still complete that write, so do not retry it automatically. Suggest raising `CLUSTER_CONSOLIDATE_TIMEOUT_MS`, or one retry with `--consolidate-timeout` if the user agrees.
 
 ## Guardrails & Anti-Patterns
 > **Critical Constraint:** Never hard-code or infer cluster IP addresses. All endpoints come from `sekha-cluster-tool` `.env` configuration.
-> **Critical Constraint:** JSON contract keys are frozen. Consume the exact field names in `schema/` (`sim_score`, `reduction_rate`, `prompt_eval_rate_tps`, `synchronous`, …). Do not rename, re-case, or anglicise any payload key.
+> **Critical Constraint:** JSON contract keys are frozen. Consume the exact field names in `schema/` (`sim_score`, `reduction_rate`, `prompt_eval_rate_tps`, `synchronous`, `loop_complete`, …). Do not rename, re-case, or anglicise any payload key.
 > **Critical Constraint:** Durable local memory is the resolved harness memory directory only. **Never** create memory or index files inside the user's working directory or repository.
 * **Avoid:** Writing a durable fact to the cluster alone, or to harness memory alone — both legs are mandatory.
 * **Avoid:** Consolidating transient scratchpad state; it pollutes the graph and displaces real invariants in recall.
 * **Avoid:** Reading raw logs, telemetry, or payloads over 1KB directly into context instead of gating them through `filter`.
 * **Avoid:** Multi-step speculative planning in frontier context when `deliberate` on Node 2 is available.
-* **Avoid:** Passing large or multi-line payloads as inline shell strings — use `--file`/`--trace <path>` and stay clear of `ARG_MAX` and escaping errors.
+* **Avoid:** Writing a payload to a temporary file, or piping, redirecting, or heredoc-ing it into the tool. Pass it inline — split it across repeated `--text`/`--input` flags when a single string nears the OS argument limit.
 * **Avoid:** Reimplementing gating, recall, deliberation, or consolidation in the agent — always defer to the compiled tool.
 * **Avoid:** Carrying discarded noise forward from Stage 1, or padding recall with entities the graph did not return.
 * **Avoid:** Ranking recall by the composite `score` alone. Read `sim_score`; a high-traffic node can outrank a verbatim match on `score` while being semantically unrelated.
 * **Avoid:** Declaring a Tier 1 miss before working the escalation ladder — a re-rank with `--alpha 1.0 --beta 0 --gamma 0` frequently surfaces a fact the default weighting buried.
 * **Avoid:** Consolidating without `--anchor`. It costs nothing at write time and is the only way to scope recall precisely later.
 * **Avoid:** Consolidating an episode whose deliberation never reached `is_complete` unless explicitly recording a failure outcome. On the staged path this is yours to enforce. On the `orchestrate` path the tool consolidates regardless, so the choice of path *is* the control — pick the staged route when an incomplete episode must not reach the graph.
-* **Avoid:** Reading `"status": "completed"` from an `orchestrate` response as success. Check `is_complete` and `final_thought`; a fallback thought with a placeholder `proposed_action` is a failed turn.
+* **Avoid:** Judging an `orchestrate` run on one field. Success is `status == "completed"`, `loop_complete == true` and exit code `0` together; `is_complete` is Node 2's flag only. A fallback thought with a placeholder `proposed_action` is a failed turn.
+* **Avoid:** Treating exit code `2` as a crash. The result JSON is on `stdout`; read it and name the failed stages.
+* **Avoid:** Running `orchestrate` or `consolidate --sync` without the Bash `timeout` of `600000`, or wrapping it in a shell `timeout` command.
+* **Avoid:** Retrying a Stage 4 `consolidate deadline of … exceeded` error automatically, or retrying a Stage 3 context-budget error at all.
+* **Avoid:** Passing `--full` anywhere except staged `filter`, unless the user explicitly asks for debug output.
 * **Avoid:** Trusting `status` health output as evidence that deliberation works — probe it.
 * **Avoid:** Accepting a deliberation whose `thought` or `proposed_action` does not directly address the `--task` and `--input` you supplied, however fluent it reads.
 * **Avoid:** Expecting Node 2 to remember an earlier step. Deliberation is stateless; pass the previous `proposed_action` via `--input` or `--context` when chaining steps.
-* **Avoid:** Parsing the diagnostic `stderr` stream as data — only `stdout` carries the JSON contract (`--verbose` routes step logs to `stderr`).
+* **Avoid:** Parsing the diagnostic `stderr` stream as data, or merging it into `stdout` with `2>&1` — only `stdout` carries the JSON contract (`--verbose` routes step logs to `stderr`).
 
 ## Reference Example
 ### Example Input
@@ -280,9 +316,11 @@ sekha-cluster-tool orchestrate \
   --session-id "sess-thermal-01" \
   --sync
 ```
+Run with the Bash `timeout` parameter set to `600000`.
 ### Example Output (summarised)
-> **Stage 1 (filter):** 2 salient chunks retained of 4 (`reduction_rate` 0.50) — the two thermal warnings; the `sshd`/`cron` lines were discarded as noise.
-> **Stage 2 (recall):** top node `Thermal Policy` (`score` 0.87) with an edge `mitigates → Auxiliary Fan Override`.
-> **Stage 3 (deliberate):** thought — "core at 92C exceeds the 70C policy threshold"; `proposed_action` — "trigger auxiliary fan override"; `is_complete` true.
-> **Stage 4 (consolidate):** episode committed, `status` consolidated, `trace_id` `trc-a1b2c3d4e5f60718`.
-> **Turn:** completed in `total_duration_ms` 812; trace `trc-a1b2c3d4e5f60718`.
+> **Cycle:** exit code 0, `status` completed, `loop_complete` true — all four stages report `success`.
+> **Stage 1 (`1_sensory_filter`):** the stream was gated; the default output reports counts only.
+> **Stage 2 (`2_long_term_recall`):** grounding retrieved; the default output reports counts only.
+> **Stage 3 (`3_working_deliberate`):** `final_thought` — "core at 92C exceeds the 70C policy threshold"; `proposed_action` — "trigger auxiliary fan override".
+> **Stage 4 (`4_memory_consolidate`):** episode committed.
+> **Turn:** `total_duration_ms` 30150; trace `trc-a1b2c3d4e5f60718`.

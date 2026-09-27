@@ -2,7 +2,7 @@
 
 When you need to inspect or intervene between stages — for example, to iterate deliberation or to choose recall parameters based on what the gate returned — run the four subcommands by hand instead of `orchestrate`. Each prints its stage contract to `stdout`.
 
-The staged flow observes the same contracts as a single `orchestrate` turn: every node is engaged for the work it exists to do, large inputs are passed by file, recall is cluster-first with a harness memory fallback, and durable facts are dual-written.
+The staged flow observes the same contracts as a single `orchestrate` turn: every node is engaged for the work it exists to do, large inputs are passed inline (repeating the flag when needed), recall is cluster-first with a harness memory fallback, and durable facts are dual-written.
 
 ## Stage 1 — Gate the stream (`filter`)
 This syslog burst is raw operational noise, so it goes through Node 3 rather than into context. Gating is mandatory for any raw log, error stream, telemetry, or payload over 1KB.
@@ -11,8 +11,10 @@ This syslog burst is raw operational noise, so it goes through Node 3 rather tha
 sekha-cluster-tool filter \
   --text "disk sda read latency nominal; smartd: Device: /dev/sdb, 14 Currently unreadable (pending) sectors; ntpd: adjusting clock; smartd: Device: /dev/sdb, SMART Usage Attribute: 197 Current_Pending_Sector changed from 100 to 088" \
   --directive "detect impending disk failure" \
-  --threshold 0.45
+  --threshold 0.45 \
+  --full
 ```
+`--full` is needed here because default `filter` output is counts only, and this stage carries the chunk text forward.
 ```json
 {
   "chunks": [
@@ -28,15 +30,17 @@ sekha-cluster-tool filter \
 ```
 Carry the two `/dev/sdb` chunks forward; drop the `ntpd` and nominal-latency noise.
 
-The stream above is small enough to pass inline. A real syslog capture is not: when the input exceeds 1KB or spans multiple lines, pass it by file instead of as an inline shell string, which avoids escaping errors and the shell `ARG_MAX` limit.
+A real syslog capture is larger and multi-line, and it is still passed inline — `--text` accepts up to 256 KB in one value. Single-quote it so `$` and backticks stay literal. When one string approaches the OS per-argument limit (128 KB on Linux), split it on line boundaries and repeat the flag in order:
 
 ```bash
 sekha-cluster-tool filter \
-  --file /var/log/smartd-capture.log \
+  --text '<first half of the capture>' \
+  --text '<second half of the capture>' \
   --directive "detect impending disk failure" \
-  --threshold 0.45
+  --threshold 0.45 \
+  --full
 ```
-Use `--file -` to read the stream from stdin.
+Keep it one unchained command: no temporary file, pipe, heredoc, or `--file` — that flag is an operator convenience, not for agents during benchmark tasks.
 
 ## Stage 2 — Ground with recall (`recall`)
 This is **Tier 1** of the two-tier retrieval protocol — the knowledge graph is asked first.
@@ -111,6 +115,7 @@ sekha-cluster-tool consolidate \
   --session-id "sess-disk-02" \
   --sync
 ```
+With `--sync`, run it with the Bash `timeout` parameter set to `600000`; Stage 4's default deadline is 120 s. If it fails with `consolidate deadline of … exceeded`, do not retry automatically — Node 1 may still complete the write.
 ```json
 {
   "status": "consolidated",
@@ -132,12 +137,12 @@ sekha-cluster-tool consolidate \
   --sync
 ```
 
-For a large episodic trace — extensive `sensory_context` or a long `trajectory` — write the JSON to a file and pass its path instead of an inline string:
+For a large episodic trace — extensive `sensory_context` or a long `trajectory` — still pass the JSON inline in single quotes (up to 256 KB), never via a temporary file:
 ```bash
 sekha-cluster-tool consolidate \
   --session-id "sess-disk-02" \
   --goal "decide on disk sdb mitigation" \
-  --trace "/path/to/trace.json" \
+  --trace '{"session_id":"sess-disk-02", ...}' \
   --sync
 ```
 

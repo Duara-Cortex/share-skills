@@ -9,7 +9,7 @@ This folder contains the **Cluster Memory Skill** for Antigravity. It equips the
 This skill adheres to core agentic and architectural design principles:
 
 ### 1. Compiled Determinism & Drift Elimination
-All cognitive interactions with physical cluster nodes are routed through the compiled binary `sekha-cluster-tool` ($\ge \text{v1.0.9}$, required for stateless deliberation). A compiled harness prevents runtime prompt mutation, eliminates behavioural drift across sessions, and enforces strict sub-second timeout budgets (<1s per hop).
+All cognitive interactions with physical cluster nodes are routed through the compiled binary `sekha-cluster-tool` ($\ge \text{v1.0.12}$, required for stateless deliberation, large inline, repeatable payload flags, concise `orchestrate` output, truthful `status`/`loop_complete`, exit codes and configurable stage deadlines). A compiled harness prevents runtime prompt mutation, eliminates behavioural drift across sessions, and enforces per-stage deadlines resolved from configuration.
 
 ### 2. Decoupled 12-Factor Configuration
 Zero cluster IP addresses are hardcoded in prompts, schemas, or markdown documents. Endpoint addresses default to blank (`""`) and are dynamically resolved via `.env` configuration, operating system environment variables, or CLI flags.
@@ -72,7 +72,7 @@ The cluster executes a 4-stage closed-loop cognitive cycle across three distribu
  (CLI: `sekha-cluster-tool consolidate --goal ... --outcome ... --sync`)
 ```
 
-For unified operations, `sekha-cluster-tool orchestrate --input "<stream>"` coordinates all four stages within a single invocation, injecting a distributed `X-Trace-ID` across every hop.
+For unified operations, `sekha-cluster-tool orchestrate --input '<stream>'` coordinates all four stages within a single invocation, injecting a distributed `X-Trace-ID` across every hop. Give it a command timeout of at least 600 s. It succeeded only when the exit code is `0`, `status` is `completed` and `loop_complete` is `true`; exit code `2` is a partial or failed cycle whose JSON is still on `stdout`, and `is_complete` is Node 2's deliberation flag, not a loop-completion signal.
 
 ---
 

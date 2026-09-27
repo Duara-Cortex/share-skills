@@ -12,8 +12,11 @@ Per the **Sensory Gating Mandate**, whenever high-frequency sensory observations
 sekha-cluster-tool filter \
   --text "[2026-09-14T20:10:01Z] node-1 heartbeat ok [2026-09-14T20:10:04Z] ALERT: pwr-rail-4 voltage dropped below 11.2V [2026-09-14T20:10:06Z] routine fan check ok" \
   --directive "Identify power infrastructure anomalies" \
-  --threshold 0.45
+  --threshold 0.45 \
+  --full
 ```
+
+`--full` is needed here because default `filter` output is counts only, and this stage carries the chunk text forward.
 
 ### Response (`stdout`)
 ```json
@@ -177,6 +180,8 @@ sekha-cluster-tool consolidate \
   --anchor "#facility:power-grid" \
   --sync
 ```
+
+With `--sync`, give the command a timeout of at least 600 s; Stage 4's default deadline is 120 s. If it fails with `consolidate deadline of … exceeded`, do not retry automatically — Node 1 may still complete the write.
 
 ### Response (`stdout`)
 ```json

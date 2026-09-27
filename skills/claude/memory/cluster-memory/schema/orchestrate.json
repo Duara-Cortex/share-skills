@@ -2,33 +2,36 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "cluster-memory/orchestrate.json",
   "title": "Closed-Loop Cognitive Cycle Contract",
-  "description": "Request and response payload contracts for `sekha-cluster-tool orchestrate`, which coordinates all four stages in a single closed-loop turn and collects per-stage telemetry. The response object is emitted verbatim to stdout by the CLI. Stage sub-objects reuse the contracts in filter.json, recall.json, deliberate.json, and consolidate.json. Property names mirror the compiled tool's JSON tags exactly and must never be anglicised.",
+  "description": "Request and response payload contracts for `sekha-cluster-tool orchestrate` (>= v1.0.12), which coordinates all four stages in a single closed-loop turn. stdout always carries exactly one JSON object: `response` on exit code 0 (completed) or 2 (partial or failed cycle), `error_response` on exit code 1 (the cycle never ran). Diagnostics go to stderr. The default response is concise (about 2-3 KB for any input up to the 1 MiB cap); `--full` restores the full nested stage payloads for operator debugging only. Property names mirror the compiled tool's JSON tags exactly and must never be anglicised.",
   "type": "object",
   "definitions": {
     "StageTelemetry": {
       "type": "object",
-      "description": "Execution duration and status for one stage of the cognitive loop.",
+      "description": "Outcome and duration of one stage of the cognitive loop.",
       "properties": {
-        "stage_name": { "type": "string", "description": "Stage label (e.g. sensory, recall, deliberation, consolidation)." },
-        "node": { "type": "string", "description": "Cognitive layer that served the stage." },
-        "endpoint": { "type": "string", "description": "Resolved endpoint the stage was dispatched to." },
-        "duration_ms": { "type": "number", "description": "Stage duration in milliseconds; compare against the documented sub-second hop budget." },
-        "status": { "type": "string", "description": "Stage status (e.g. ok, degraded, error, skipped)." },
-        "error": { "type": "string", "description": "Error detail when the stage failed or degraded." }
+        "stage_name": { "type": "string", "enum": ["1_sensory_filter", "2_long_term_recall", "3_working_deliberate", "4_memory_consolidate"], "description": "Stage label." },
+        "status": { "type": "string", "enum": ["success", "failed", "over_budget"], "description": "Stage outcome. `over_budget` applies to stage 3 only: it ran, but the prompt was over the Node 2 context budget." },
+        "error": { "type": "string", "description": "Error detail, present only on failure; capped at about 300 bytes. A deadline error names the value used and where it came from." },
+        "duration_ms": { "type": "number", "description": "Stage duration in milliseconds." }
       },
-      "required": ["stage_name", "node", "endpoint", "duration_ms", "status"]
+      "required": ["stage_name", "status", "duration_ms"]
+    },
+    "CountSummary": {
+      "type": "object",
+      "description": "Count-only stage summary in the default output. It carries no chunk text, recalled node list, or per-node gate decisions; those appear only with `--full`.",
+      "additionalProperties": true
     }
   },
   "properties": {
     "request": {
       "type": "object",
-      "description": "Configuration for a full cognitive turn. Populated from the CLI flags --input, --directive, --trace-id, and --sync.",
+      "description": "Configuration for a full cognitive turn. Populated from the CLI flags --input (repeatable), --directive, --trace-id, --max-tokens and --sync. Stage deadlines come from --sensory-timeout, --timeout (recall only on this subcommand) and --consolidate-timeout, or their CLUSTER_*_TIMEOUT_MS settings.",
       "properties": {
         "raw_input": { "type": "string", "description": "The raw sensory stream to process (CLI flag --input)." },
         "task_directive": { "type": "string", "description": "Attention and reasoning directive for the turn (CLI flag --directive)." },
         "filter_threshold": { "type": "number", "description": "Salience cut-off for Stage 1." },
         "recall_top_k": { "type": "integer", "description": "Top-k bound for Stage 2 recall." },
-        "max_tokens": { "type": "integer", "description": "Generation budget for Stage 3 deliberation." },
+        "max_tokens": { "type": "integer", "description": "Generation budget for Stage 3 deliberation. Each token widens the Stage 3 deadline by 100 ms." },
         "session_id": { "type": "string", "description": "Session identifier threaded through the turn." },
         "synchronous_consolidate": { "type": "boolean", "description": "When true (CLI flag --sync), block on Stage 4 consolidation statistics." }
       },
@@ -36,22 +39,33 @@
     },
     "response": {
       "type": "object",
-      "description": "End-to-end outcome of the four-stage cognitive cycle with nested stage payloads and telemetry.",
+      "description": "Concise end-to-end outcome of the four-stage cycle (exit code 0 or 2). A cycle succeeded only when status is `completed`, loop_complete is true and the exit code is 0.",
       "properties": {
-        "trace_id": { "type": "string", "description": "Distributed trace identifier for the whole turn." },
-        "session_id": { "type": "string" },
-        "status": { "type": "string", "description": "Overall turn status (e.g. ok, degraded, error)." },
+        "status": { "type": "string", "enum": ["completed", "partial", "failed"], "description": "`completed` when no stage failed, `partial` when some failed, `failed` when all failed." },
+        "is_complete": { "type": "boolean", "description": "Node 2's own deliberation flag. It does NOT mean the loop completed; use loop_complete for that." },
+        "stages": { "type": "array", "items": { "$ref": "#/definitions/StageTelemetry" }, "description": "Ordered per-stage outcome and duration." },
         "final_thought": { "type": "string", "description": "The scratchpad's concluding thought." },
         "proposed_action": { "type": "string", "description": "The action proposed at the end of the turn." },
-        "is_complete": { "type": "boolean", "description": "True when the loop reached a terminal conclusion." },
-        "sensory": { "$ref": "filter.json#/properties/response", "description": "Full Stage 1 filter response." },
-        "recall": { "$ref": "recall.json#/properties/response", "description": "Full Stage 2 recall response." },
-        "deliberation": { "$ref": "deliberate.json#/properties/response", "description": "Full Stage 3 deliberate response." },
-        "consolidation": { "$ref": "consolidate.json#/properties/response", "description": "Full Stage 4 consolidate response." },
-        "stages": { "type": "array", "items": { "$ref": "#/definitions/StageTelemetry" }, "description": "Ordered per-stage telemetry for latency and status inspection." },
-        "total_duration_ms": { "type": "number", "description": "End-to-end turn duration in milliseconds." }
+        "trace_id": { "type": "string", "description": "Distributed trace identifier for the whole turn." },
+        "session_id": { "type": "string" },
+        "total_duration_ms": { "type": "number", "description": "End-to-end turn duration in milliseconds." },
+        "loop_complete": { "type": "boolean", "description": "True only when all four stages report `success`." },
+        "sensory": { "$ref": "#/definitions/CountSummary", "description": "Count-only Stage 1 summary." },
+        "recall": { "$ref": "#/definitions/CountSummary", "description": "Count-only Stage 2 summary, including relevance_gate counts." },
+        "deliberation": { "$ref": "#/definitions/CountSummary", "description": "Count-only Stage 3 summary." },
+        "consolidation": { "$ref": "#/definitions/CountSummary", "description": "Count-only Stage 4 summary." }
       },
-      "required": ["trace_id", "session_id", "status", "is_complete", "sensory", "recall", "deliberation", "consolidation", "stages", "total_duration_ms"]
+      "required": ["status", "is_complete", "stages", "trace_id", "session_id", "total_duration_ms", "loop_complete"]
+    },
+    "error_response": {
+      "type": "object",
+      "description": "Printed with exit code 1 when the cycle never ran. Report `error` as a configuration or invocation problem.",
+      "properties": {
+        "status": { "type": "string", "const": "error" },
+        "error": { "type": "string", "description": "What went wrong." },
+        "trace_id": { "type": "string" }
+      },
+      "required": ["status", "error"]
     }
   }
 }
