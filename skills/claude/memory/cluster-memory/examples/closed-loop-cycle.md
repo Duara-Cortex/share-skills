@@ -13,7 +13,7 @@ sekha-cluster-tool orchestrate \
   --session-id "sess-thermal-01" \
   --sync
 ```
-Run it with the Bash tool's `timeout` parameter set to `600000`. A normal run takes about 45 s, and the default stage deadlines add up to about 270 s.
+Run it with the Bash tool's `timeout` parameter set to `600000`. A one-line input takes 15–40 s and a ~90 KB input about 2–3 minutes; the default stage deadlines add up to about 330 s.
 
 ## Response on `stdout` (exit code 0; count-only summaries elided)
 ```json

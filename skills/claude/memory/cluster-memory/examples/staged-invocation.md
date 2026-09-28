@@ -11,7 +11,6 @@ This syslog burst is raw operational noise, so it goes through Node 3 rather tha
 sekha-cluster-tool filter \
   --text "disk sda read latency nominal; smartd: Device: /dev/sdb, 14 Currently unreadable (pending) sectors; ntpd: adjusting clock; smartd: Device: /dev/sdb, SMART Usage Attribute: 197 Current_Pending_Sector changed from 100 to 088" \
   --directive "detect impending disk failure" \
-  --threshold 0.45 \
   --full
 ```
 `--full` is needed here because default `filter` output is counts only, and this stage carries the chunk text forward.
@@ -30,14 +29,13 @@ sekha-cluster-tool filter \
 ```
 Carry the two `/dev/sdb` chunks forward; drop the `ntpd` and nominal-latency noise.
 
-A real syslog capture is larger and multi-line, and it is still passed inline — `--text` accepts up to 256 KB in one value. Single-quote it so `$` and backticks stay literal. When one string approaches the OS per-argument limit (128 KB on Linux), split it on line boundaries and repeat the flag in order:
+A real syslog capture is larger and multi-line, and it is still passed inline — `--text` accepts up to 1 MiB combined across repeated flags. Single-quote it so `$` and backticks stay literal. When one string approaches the OS per-argument limit (128 KB on Linux), split it on line boundaries and repeat the flag in order:
 
 ```bash
 sekha-cluster-tool filter \
   --text '<first half of the capture>' \
   --text '<second half of the capture>' \
   --directive "detect impending disk failure" \
-  --threshold 0.45 \
   --full
 ```
 Keep it one unchained command: no temporary file, pipe, heredoc, or `--file` — that flag is an operator convenience, not for agents during benchmark tasks.
@@ -79,14 +77,14 @@ sekha-cluster-tool recall --query "policy" --type policy --min-score 0.70
 Had Tier 1 been unreachable, timed out, or returned `"nodes": []`, the next step would be **Tier 2**: read Claude harness memory at harness memory, ground on what is stored there, and tell the operator which tier supplied the values. See [`fallback-degraded.md`](fallback-degraded.md) Case E.
 
 ## Stage 3 — Deliberate (`deliberate`)
-The mitigation decision is speculative multi-step reasoning, so it belongs on the Node 2 edge SLM rather than in frontier context. Deliberation takes 25–35 s — always pass `--timeout 45s`.
+The mitigation decision is speculative multi-step reasoning, so it belongs on the Node 2 edge SLM rather than in frontier context. Deliberation takes up to about 160 s with a full context — always pass `--timeout 180s`.
 
 ```bash
 sekha-cluster-tool deliberate \
   --task "decide on disk sdb mitigation" \
   --input "sdb pending sectors rising: 100 to 088, 14 unreadable" \
   --context "Rising pending sectors warrant pre-emptive replacement; requires a RAID rebuild." \
-  --timeout 45s
+  --timeout 180s
 ```
 ```json
 {
@@ -137,7 +135,7 @@ sekha-cluster-tool consolidate \
   --sync
 ```
 
-For a large episodic trace — extensive `sensory_context` or a long `trajectory` — still pass the JSON inline in single quotes (up to 256 KB), never via a temporary file:
+For a large episodic trace — extensive `sensory_context` or a long `trajectory` — still pass the JSON inline in single quotes (up to 1 MiB combined), never via a temporary file:
 ```bash
 sekha-cluster-tool consolidate \
   --session-id "sess-disk-02" \

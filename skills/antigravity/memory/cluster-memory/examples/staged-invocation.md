@@ -12,7 +12,6 @@ Per the **Sensory Gating Mandate**, whenever high-frequency sensory observations
 sekha-cluster-tool filter \
   --text "[2026-09-14T20:10:01Z] node-1 heartbeat ok [2026-09-14T20:10:04Z] ALERT: pwr-rail-4 voltage dropped below 11.2V [2026-09-14T20:10:06Z] routine fan check ok" \
   --directive "Identify power infrastructure anomalies" \
-  --threshold 0.45 \
   --full
 ```
 
@@ -132,7 +131,7 @@ sekha-cluster-tool deliberate \
   --task "Engage auxiliary power bus" \
   --input "pwr-rail-4 measured at 11.18V for 750ms" \
   --context "[policy: Power Rail Redundancy Policy] Transfer to Auxiliary Power Bus B" \
-  --timeout 45s
+  --timeout 180s
 ```
 
 ### Response (`stdout`)
