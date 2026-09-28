@@ -70,7 +70,7 @@ sekha-cluster-tool deliberate \
   --task "Resolve high memory contention" \
   --input "cgroup oom killer invoked" \
   --context "Policy: terminate lowest priority worker" \
-  --timeout 45s
+  --timeout 180s
 ```
 
 #### Emitted Output
@@ -99,7 +99,7 @@ sekha-cluster-tool deliberate \
   --task "Verify aeroponics salinity threshold" \
   --input "EC measured at 2.4 mS/cm" \
   --context "Optimal EC range: 1.6 - 2.0 mS/cm" \
-  --timeout 45s
+  --timeout 180s
 ```
 
 #### Emitted Output (Off-Topic)

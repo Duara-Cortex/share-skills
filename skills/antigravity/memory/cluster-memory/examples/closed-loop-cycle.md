@@ -25,7 +25,7 @@ sekha-cluster-tool orchestrate \
 
 ## 3. Emitted Output Contract (`stdout`)
 
-Run the command with a timeout of at least 600 s; a normal run takes about 45 s. The default output is concise (count-only summaries elided below), and the process exits with code `0`:
+Run the command with a timeout of at least 600 s; a one-line input takes 15–40 s and a ~90 KB input about 2–3 minutes. The default output is concise (count-only summaries elided below), and the process exits with code `0`:
 
 ```json
 {

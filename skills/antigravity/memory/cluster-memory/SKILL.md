@@ -65,7 +65,7 @@ sequenceDiagram
 
 ## 📋 Prerequisites & Tooling
 
-1. **Compiled Binary**: `sekha-cluster-tool` ($\ge \text{v1.0.12}$) must be installed and executable in the system `PATH`. The `v1.0.12` floor is required for stateless deliberation (since v1.0.9), for large inline payloads (`--text`/`--input`/`--trace`, up to 256 KB) and repeatable `--text`/`--input` flags (v1.0.10), and for the concise `orchestrate` output, truthful `status` and `loop_complete`, exit codes and configurable stage deadlines (v1.0.12).
+1. **Compiled Binary**: `sekha-cluster-tool` ($\ge \text{v1.0.12}$) must be installed and executable in the system `PATH`. The `v1.0.12` floor is required for stateless deliberation (since v1.0.9), for large inline payloads (`--text`/`--input`/`--trace`, up to 1 MiB combined) and repeatable `--text`/`--input` flags (v1.0.10), and for the concise `orchestrate` output, truthful `status` and `loop_complete`, exit codes and configurable stage deadlines (v1.0.12).
    - Verify the installed version is v1.0.12 or later:
      ```bash
      sekha-cluster-tool --version
@@ -105,7 +105,7 @@ CLUSTER_CONSOLIDATE_TIMEOUT_MS=120000
 # CLUSTER_DELIBERATE_TIMEOUT_MS is a floor for Stage 3; see Stage Deadlines below
 
 # Attention & Recall Hyperparameters
-CLUSTER_SALIENCE_THRESHOLD=0.45
+CLUSTER_SALIENCE_THRESHOLD=0.75
 CLUSTER_RECALL_TOP_K=5
 ```
 
@@ -123,10 +123,10 @@ Each `orchestrate` stage has its own deadline, resolved **flag > env > `.env` > 
 | :--- | :--- | :--- |
 | 1. Sensory | `--sensory-timeout`, `CLUSTER_SENSORY_TIMEOUT_MS` | 30 s |
 | 2. Recall | `--timeout`, `CLUSTER_DEFAULT_TIMEOUT_MS` | 1.5 s |
-| 3. Deliberate | `CLUSTER_DELIBERATE_TIMEOUT_MS` — a floor; the tool widens it to 5 s + 25 ms per prompt token + 100 ms per `--max-tokens` | about 117 s worst case |
+| 3. Deliberate | `CLUSTER_DELIBERATE_TIMEOUT_MS` — a floor; the tool widens it for the packed prompt size | up to about 180 s (Node 2's own inference limit) |
 | 4. Consolidate | `--consolidate-timeout`, `CLUSTER_CONSOLIDATE_TIMEOUT_MS` | 120 s |
 
-On `orchestrate`, `--timeout` governs **recall only**. A deadline error names the value used and where it came from. Measured live on 87 KB of salient input with `--sync`: sensory 0.1–0.3 s, recall 0.1–0.2 s, deliberate 12–28 s, consolidate about 17 s — about 45 s in total.
+On `orchestrate`, `--timeout` governs **recall only**. A deadline error names the value used and where it came from. A discrete `deliberate` call takes `--timeout 180s` (45 s for the preflight probe only). Measured live on v1.0.13 with `--sync`: on a ~90 KB input, sensory 0.1–0.3 s, recall 0.1–0.3 s, deliberate 120–160 s (Node 2 now reads a full context), consolidate 0.5–9 s — about 2–3 minutes in total; a one-line input takes 15–40 s.
 
 ---
 
@@ -286,11 +286,11 @@ Agents must actively engage all three physical nodes in accordance with their ar
   sekha-cluster-tool filter \
     --text '<raw telemetry stream>' \
     --directive "Identify operational anomalies" \
-    --threshold 0.45 \
     --full
   ```
 - **Rules**:
   - Pass `--full`: default `filter` output is counts only, and this stage needs the chunk text to carry forward. This is the only place the skill uses `--full` by default.
+  - Do not pass `--threshold`: the cluster's configured salience threshold (`CLUSTER_SALIENCE_THRESHOLD`) applies.
   - Carry forward only the returned salient `chunks`; discard background noise.
   - Report `reduction_rate`, `noise_discarded`, and `latency_ms` to the operator.
   - If `salient_chunks` is 0, conclude explicitly that no signal exceeded the salience threshold; **never manufacture artificial signal**.
@@ -308,10 +308,10 @@ Agents must actively engage all three physical nodes in accordance with their ar
     --task "<task objective>" \
     --input "<sensory observation>" \
     --context "<retrieved facts and policy guidelines>" \
-    --timeout 45s
+    --timeout 180s
   ```
 - **Rules**:
-  - Edge SLM inference on Node 2 typically requires 25–35 seconds; **always pass `--timeout 45s`** to avoid premature timeout failures.
+  - Edge SLM inference on Node 2 takes up to about 160 s with a full context; **always pass `--timeout 180s`** to avoid premature timeout failures (45 s only for the preflight probe).
   - **Per-Call Sanity Check**: Ensure `status == "ok"` and that the returned `thought` and `proposed_action` directly address the `--task` and `--input` supplied. If they do not, treat the call as failed, do not relay its `thought` or `proposed_action` as a finding, and state that no valid deliberation was obtained.
   - Evaluate `thought`, `proposed_action`, and `is_complete`.
   - **Caller-Owned Multi-Turn Deliberation**: Node 2 remembers nothing between calls, so a chain of reasoning exists only if you carry it. If `is_complete` is `false`, iterate by passing the previous step's `proposed_action` (and any result of acting on it) as the next call's `--input`, or inside `--context` alongside the grounding facts.
@@ -357,7 +357,7 @@ Agents must actively engage all three physical nodes in accordance with their ar
     --trace-id "<trace id>" \
     --sync
   ```
-- **Command Timeout**: A normal run takes about 45 s, and the default stage deadlines add up to about 270 s (30 + 1.5 + 117 + 120). Give every `orchestrate` (and `consolidate --sync`) command a timeout of at least **600 s** in the agent's command runner. If the runner kills the process, no JSON is printed and every stage outcome is lost. Keep 600 s as the ceiling: do not pass a `--consolidate-timeout` that would push the run past it. Set it in the runner, never with a shell `timeout` wrapper, which breaks the single `sekha-cluster-tool` command form.
+- **Command Timeout**: A one-line input takes 15–40 s and a ~90 KB input about 2–3 minutes; the default stage deadlines add up to about 330 s (30 + 1.5 + up to 180 + 120). Give every `orchestrate` (and `consolidate --sync`) command a timeout of at least **600 s** in the agent's command runner. If the runner kills the process, no JSON is printed and every stage outcome is lost. Keep 600 s as the ceiling: do not pass a `--consolidate-timeout` that would push the run past it. Set it in the runner, never with a shell `timeout` wrapper, which breaks the single `sekha-cluster-tool` command form.
 - **Reading the Result**: `stdout` always carries exactly one JSON object; diagnostics go to `stderr`. Never merge them with `2>&1`. Judge the cycle on `status`, `loop_complete`, `stages[]` and the exit code together:
 
   | Exit code | Meaning | What to do |
@@ -384,14 +384,13 @@ Agents must actively engage all three physical nodes in accordance with their ar
 ### 5. Large Payload & Stream Handling Protocol (Inline, Repeatable Flags)
 
 > [!TIP]
-> **Inline Payload Delivery**: `--text`, `--input`, and `--trace` accept large inline strings of up to 256 KB each (`sekha-cluster-tool >= v1.0.10`), including multi-line content. Pass every payload inline in **one unchained `sekha-cluster-tool` command**, and never write it to a temporary file.
+> **Inline Payload Delivery**: `--text`, `--input`, and `--trace` accept large inline strings — up to 1 MiB combined across repeated flags (`--max-input-bytes`/`CLUSTER_MAX_INPUT_BYTES`); over the cap the tool exits `1` and never truncates (`sekha-cluster-tool >= v1.0.10`) —, including multi-line content. Pass every payload inline in **one unchained `sekha-cluster-tool` command**, and never write it to a temporary file.
 
 - **Single Inline Value**:
   ```bash
   sekha-cluster-tool filter \
     --text '<raw sensory stream>' \
     --directive "Isolate anomalous operational events" \
-    --threshold 0.45 \
     --full
   ```
 - **Repeatable Flags for Very Large Payloads**:
@@ -404,7 +403,7 @@ Agents must actively engage all three physical nodes in accordance with their ar
     --sync
   ```
 - **Large Inline Trace Consolidation (`consolidate --trace`)**:
-  Pass a large deliberation trace inline as single-quoted JSON (up to 256 KB):
+  Pass a large deliberation trace inline as single-quoted JSON (up to 1 MiB combined):
   ```bash
   sekha-cluster-tool consolidate \
     --session-id "sess-large-trace" \
@@ -483,5 +482,5 @@ Follow the tool's stage deadlines (see **Stage Deadlines**) and the retry rules 
 
 - **Pure British English (`en_GB`)**: All explanatory prose, reports, and documentation must adhere strictly to British English spelling (*initialise*, *serialise*, *optimise*, *neighbour*, *behaviour*, *prioritise*, *memorise*).
 - **Frozen Contract Keys**: JSON keys emitted by `sekha-cluster-tool` mirror Go struct tags exactly (`salient_chunks`, `reduction_rate`, `sim_score`, `proposed_action`, `is_complete`, `loop_complete`, `trace_id`, `stages[]`, `latency_ms`). They must never be altered, re-cased, or anglicised.
-- **Stage Deadlines**: Each stage's `duration_ms` must be read against its deadline (sensory 30 s, recall 1.5 s, deliberation widened from `CLUSTER_DELIBERATE_TIMEOUT_MS`, consolidation 120 s by default), alongside telemetry fields (`latency_ms`, `query_latency_ms`, `total_duration_ms`). A discrete `deliberate` call is budgeted with `--timeout 45s`.
+- **Stage Deadlines**: Each stage's `duration_ms` must be read against its deadline (sensory 30 s, recall 1.5 s, deliberation widened from `CLUSTER_DELIBERATE_TIMEOUT_MS`, consolidation 120 s by default), alongside telemetry fields (`latency_ms`, `query_latency_ms`, `total_duration_ms`). A discrete `deliberate` call is budgeted with `--timeout 180s` (45 s for the preflight probe).
 - **CLI Shell Safety**: All inline trace JSON payloads passed to `--trace` must be enclosed in single quotes (`'{"session_id":...}'`) to ensure clean execution under tool allowlists.

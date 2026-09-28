@@ -27,7 +27,7 @@ The cluster **augments** the Claude harness's own memory; it never replaces it. 
   * You only need generic reasoning with no persistence — do not manufacture cluster calls for their own sake.
 
 ## Prerequisites
-1. **Compiled tool:** `sekha-cluster-tool >= v1.0.12` must be on `PATH`. Verify with `sekha-cluster-tool --version`. This skill never reimplements the tool's logic — a compiled binary prevents behavioural drift. The `>= v1.0.12` floor is required by stateless deliberation (below), by large inline payloads (`--text`/`--input`/`--trace`, up to 256 KB) and repeatable `--text`/`--input` flags (see **Large Input & Stream Handling**), and by the concise `orchestrate` output, truthful `status` and `loop_complete`, exit codes and configurable stage deadlines (see **Running `orchestrate` & Reading the Result**).
+1. **Compiled tool:** `sekha-cluster-tool >= v1.0.12` must be on `PATH`. Verify with `sekha-cluster-tool --version`. This skill never reimplements the tool's logic — a compiled binary prevents behavioural drift. The `>= v1.0.12` floor is required by stateless deliberation (below), by large inline payloads (`--text`/`--input`/`--trace`, up to 1 MiB combined) and repeatable `--text`/`--input` flags (see **Large Input & Stream Handling**), and by the concise `orchestrate` output, truthful `status` and `loop_complete`, exit codes and configurable stage deadlines (see **Running `orchestrate` & Reading the Result**).
 2. **Configuration (`.env`):** All node endpoints default to **blank** and must be configured. The tool resolves configuration with 12-factor precedence: **CLI flags > OS environment variables > `.env` file > compile-time defaults > blank.** Configure via:
    * `sekha-cluster-tool env init` — write a blank starter `.env` in the working directory.
    * Populate `CLUSTER_SENSORY_URL`, `CLUSTER_WORKING_URL`, `CLUSTER_KNOWLEDGE_URL` (and optional `CLUSTER_*_TIMEOUT_MS`, `CLUSTER_SALIENCE_THRESHOLD`, `CLUSTER_RECALL_TOP_K`).
@@ -40,10 +40,10 @@ The cluster **augments** the Claude harness's own memory; it never replaces it. 
    | :--- | :--- | :--- |
    | 1. Sensory | `--sensory-timeout`, `CLUSTER_SENSORY_TIMEOUT_MS` | 30 s |
    | 2. Recall | `--timeout`, `CLUSTER_DEFAULT_TIMEOUT_MS` | 1.5 s |
-   | 3. Deliberate | `CLUSTER_DELIBERATE_TIMEOUT_MS` — a floor; the tool widens it to 5 s + 25 ms per prompt token + 100 ms per `--max-tokens` | about 117 s worst case |
+   | 3. Deliberate | `CLUSTER_DELIBERATE_TIMEOUT_MS` — a floor; the tool widens it for the packed prompt size | up to about 180 s (Node 2's own inference limit) |
    | 4. Consolidate | `--consolidate-timeout`, `CLUSTER_CONSOLIDATE_TIMEOUT_MS` | 120 s |
 
-   On `orchestrate`, `--timeout` governs **recall only**. A deadline error names the value used and where it came from. A discrete `deliberate` call still takes `--timeout 45s`. Measured live on 87 KB of salient input with `--sync`: sensory 0.1–0.3 s, recall 0.1–0.2 s, deliberate 12–28 s, consolidate about 17 s — about 45 s in total.
+   On `orchestrate`, `--timeout` governs **recall only**. A deadline error names the value used and where it came from. A discrete `deliberate` call takes `--timeout 180s` (45 s for the preflight probe only). Measured live on v1.0.13 with `--sync`: on a ~90 KB input, sensory 0.1–0.3 s, recall 0.1–0.3 s, deliberate 120–160 s (Node 2 now reads a full context), consolidate 0.5–9 s — about 2–3 minutes in total; a one-line input takes 15–40 s.
 
 ## Memory Architecture — Two Stores, One Contract
 Durable memory is layered. Each store has a distinct failure mode, which is precisely why both are written.
@@ -101,7 +101,7 @@ Commit the fact to Claude's persistent harness memory, at the directory resolved
 
 ### Write 2 — Sekha cluster memory
 * **Do NOT** use `--goal` alone — it truncates the label to 40 characters and loses the parameters.
-* **Use** `consolidate --sync --trace '<json>'` with the JSON written inline inside single quotes (up to 256 KB; see **Large Input & Stream Handling**). Run it with the Bash `timeout` set to `600000` — see **Running `orchestrate` & Reading the Result**.
+* **Use** `consolidate --sync --trace '<json>'` with the JSON written inline inside single quotes (up to 1 MiB combined; see **Large Input & Stream Handling**). Run it with the Bash `timeout` set to `600000` — see **Running `orchestrate` & Reading the Result**.
 * **Always anchor the write.** Pass `--anchor "#project:<subject>"` (repeatable, or comma-delimited) so the fact can later be scoped precisely at recall. This is the single most effective retrieval lever, because it excludes unrelated traffic categorically instead of relying on ranking. An unanchored fact can only ever be found by similarity, and `--anchor-mode filter` will never return it. Choose a stable, predictable tag — reuse the same anchor for the same subject across sessions, since a tag you cannot guess later is worthless.
 
 ```bash
@@ -155,16 +155,16 @@ Ground decisions **only** in verified facts from Tier 1 or Tier 2. Never use ano
 Sekha is a three-node cognitive system, not a remote key-value store for Node 1. Engage each node for the work it exists to do.
 
 * **Node 3 — sensory gating (`filter`).** You **MUST** run `filter` before reading raw logs, error streams, sensor telemetry, or verbose API payloads larger than 1KB into context. Never ingest a raw burst directly into the frontier context window. Carry forward only the salient `chunks` returned by `filter --full` (default `filter` output is counts only); discard the rest, and report `reduction_rate` and `noise_discarded`. An `orchestrate` run satisfies this mandate on its own — it gates the stream internally before recall, so never run `filter` and then feed the same payload to `orchestrate`.
-* **Node 2 — working deliberation (`deliberate`).** You **MUST** run `deliberate` for speculative multi-step hypothesis evaluation, diagnostic root-cause analysis, and tactical decision trees, **before** executing an action. Offload that planning to the local edge SLM rather than spending frontier tokens on it. Always pass `--timeout 45s` on a discrete `deliberate` call. That flag does **not** reach the deliberation stage of `orchestrate`; configure `CLUSTER_DELIBERATE_TIMEOUT_MS` for that path.
+* **Node 2 — working deliberation (`deliberate`).** You **MUST** run `deliberate` for speculative multi-step hypothesis evaluation, diagnostic root-cause analysis, and tactical decision trees, **before** executing an action. Offload that planning to the local edge SLM rather than spending frontier tokens on it. Always pass `--timeout 180s` on a discrete `deliberate` call (45 s only for the preflight probe). That flag does **not** reach the deliberation stage of `orchestrate`; configure `CLUSTER_DELIBERATE_TIMEOUT_MS` for that path.
 * **Node 1 — knowledge graph (`recall` & `consolidate`).** Query relational knowledge for grounding, and commit completed deliberation episodes so future recall improves.
 * **Unified pipeline (`orchestrate`).** Whenever an end-to-end turn is required — Stream → Filter → Recall → Deliberate → Consolidate — run it in one shot with `orchestrate` rather than hand-sequencing the four subcommands.
 
 ## Large Input & Stream Handling
-Pass payloads inline, in a single `sekha-cluster-tool` command. `--text`, `--input`, and `--trace` accept large inline strings of up to 256 KB, including multi-line content, so a large payload never needs a temporary file.
+Pass payloads inline, in a single `sekha-cluster-tool` command. `--text`, `--input`, and `--trace` accept large inline strings — 1 MiB combined across repeated flags (`--max-input-bytes`/`CLUSTER_MAX_INPUT_BYTES`); over the cap the tool exits `1` and never truncates — including multi-line content, so a large payload never needs a temporary file.
 
 * **One inline value** for anything that fits comfortably in one argument:
   ```bash
-  sekha-cluster-tool filter --text '<raw stream>' --directive "<what to attend to>" --threshold 0.45 --full
+  sekha-cluster-tool filter --text '<raw stream>' --directive "<what to attend to>" --full
   sekha-cluster-tool orchestrate --input '<raw stream>' --directive "<goal>" --sync
   sekha-cluster-tool consolidate --session-id "<id>" --goal "<objective>" --trace '{"session_id":"<id>", ...}' --sync
   ```
@@ -178,7 +178,7 @@ Wrap payloads in single quotes so `$`, backticks, and `!` stay literal; write an
 > **`--file` is an operator convenience only.** The tool's `--file <path>` / `--file -` and `--trace <path>` forms exist for humans running the CLI by hand. Do **not** use them as an agent during benchmark tasks, and never write a payload to a temporary file to feed them — pass it inline instead.
 
 ## Running `orchestrate` & Reading the Result
-A normal `orchestrate` run takes about 45 s. The default stage deadlines add up to about 270 s (30 + 1.5 + 117 + 120), and the Bash tool's own default timeout is 120 s.
+A one-line `orchestrate` run takes 15–40 s; a ~90 KB input takes about 2–3 minutes. The default stage deadlines add up to about 330 s (30 + 1.5 + up to 180 + 120), and the Bash tool's own default timeout is 120 s.
 
 * **Always set the Bash timeout.** Every Bash call that runs `sekha-cluster-tool orchestrate` or `consolidate --sync` must pass the Bash tool's `timeout` parameter as `600000` (ms). If Bash kills the process, no JSON is printed and every stage outcome is lost. `600000` is the Bash tool's maximum, so do not pass a `--consolidate-timeout` that would push the run past 600 s. Set it as the tool parameter; never wrap the command in a shell `timeout`, which breaks the single `sekha-cluster-tool` command form.
 * **Parse `stdout` only.** It always carries exactly one JSON object; diagnostics go to `stderr`. Never add `2>&1`.
@@ -211,8 +211,8 @@ A normal `orchestrate` run takes about 45 s. The default stage deadlines add up 
   </Step>
   <Step title="Stage 1 — Gate the Stream" subtitle="filter">
     Dispatch the raw stream to the attention gate:
-    `sekha-cluster-tool filter --text '<raw stream>' --directive "<what to attend to>" --threshold 0.45 --full`
-    **Mandatory for any raw log, error stream, telemetry, or payload over 1KB — gate it here rather than reading it into context.** Pass the payload inline via `--text` (up to 256 KB); repeat `--text` once a single string nears the OS argument limit.
+    `sekha-cluster-tool filter --text '<raw stream>' --directive "<what to attend to>" --full`
+    **Mandatory for any raw log, error stream, telemetry, or payload over 1KB — gate it here rather than reading it into context.** Pass the payload inline via `--text` (up to 1 MiB combined); repeat `--text` once a single string nears the OS argument limit. Do not pass `--threshold`: the cluster's configured salience threshold (`CLUSTER_SALIENCE_THRESHOLD`) applies.
     Pass `--full` here: default `filter` output is counts only, and this stage needs the chunk text to carry forward. This is the only place the skill uses `--full` by default.
     Read `chunks`, `salient_chunks`, `noise_discarded`, and `reduction_rate`. Carry the salient `chunks` forward; discard the rest. If `salient_chunks` is 0, report that nothing rose above the salience threshold instead of inventing signal.
   </Step>
@@ -225,8 +225,8 @@ A normal `orchestrate` run takes about 45 s. The default stage deadlines add up 
   </Step>
   <Step title="Stage 3 — Deliberate" subtitle="deliberate">
     Formulate the reasoning step on the scratchpad rather than planning in frontier context:
-    `sekha-cluster-tool deliberate --task "<objective>" --input "<salient observation>" --context "<grounding fact>" --timeout 45s`
-    Edge SLM deliberation on Node 2 takes 25–35 s — always pass `--timeout 45s` to avoid premature deadline failures. The flag applies to this discrete call only; inside `orchestrate` the budget comes from `CLUSTER_DELIBERATE_TIMEOUT_MS` instead.
+    `sekha-cluster-tool deliberate --task "<objective>" --input "<salient observation>" --context "<grounding fact>" --timeout 180s`
+    Edge SLM deliberation on Node 2 takes up to about 160 s with a full context — always pass `--timeout 180s` to avoid premature deadline failures. The flag applies to this discrete call only; inside `orchestrate` the budget comes from `CLUSTER_DELIBERATE_TIMEOUT_MS` instead.
     Read `thought`, `proposed_action`, and `is_complete`, and apply the per-call sanity check: `status` is `"ok"` and the `thought` and `proposed_action` directly address the `--task` and `--input` you supplied.
     **Multi-step reasoning is caller-owned.** Node 2 remembers nothing between calls, so a chain of steps exists only if you carry it. If `is_complete` is false, iterate: pass the previous step's `proposed_action` (and any result of acting on it) as the next call's `--input`, or inside `--context` alongside the grounding facts. Only act externally once deliberation reports `is_complete` true.
   </Step>
@@ -234,7 +234,7 @@ A normal `orchestrate` run takes about 45 s. The default stage deadlines add up 
     Commit the completed episode:
     `sekha-cluster-tool consolidate --goal "<objective>" --outcome "success|failure|partial" --session-id "<id>" --anchor "#project:<subject>" --sync`
     Anchor every write. `--anchor` is what makes `--anchor-mode filter` usable at recall; an unanchored episode is reachable only by similarity ranking.
-    Confirm a `trace_id` and a terminal `status` are returned. Use `--sync` only when you need `entities_extracted`/`nodes_fused`/`edges_reinforced` immediately; otherwise allow background consolidation. With `--sync`, set the Bash `timeout` to `600000`, and never retry a `consolidate deadline of … exceeded` error automatically. Pass a large episodic trace inline as `--trace '<json>'` (up to 256 KB), never via a temporary file.
+    Confirm a `trace_id` and a terminal `status` are returned. Use `--sync` only when you need `entities_extracted`/`nodes_fused`/`edges_reinforced` immediately; otherwise allow background consolidation. With `--sync`, set the Bash `timeout` to `600000`, and never retry a `consolidate deadline of … exceeded` error automatically. Pass a large episodic trace inline as `--trace '<json>'` (up to 1 MiB combined), never via a temporary file.
   </Step>
   <Step title="Dual-Write Durable Facts" subtitle="Persistence">
     If the turn produced a project invariant or grounding fact — a configuration, credential, parameter, policy, or standing decision — persist it to **both** stores per the **Dual-Write Contract**: record it under harness memory, and commit it to the cluster with the `--trace` pattern rather than `--goal` alone. Transient scratchpad state is written to neither. Confirm storage only after checking both legs, and name any leg that failed.
